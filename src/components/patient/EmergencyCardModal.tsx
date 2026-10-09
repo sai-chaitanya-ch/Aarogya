@@ -41,12 +41,14 @@ export const EmergencyCardModal: React.FC<EmergencyCardModalProps> = ({
           {/* Patient Header & Blood Group */}
           <div className="flex items-center justify-between p-3 rounded-2xl bg-rose-50/80 border border-rose-100">
             <div>
-              <h4 className="font-extrabold text-sm text-slate-900">{user.name}</h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">{user.age} yrs · {user.gender} · {user.location}</p>
+              <h4 className="font-extrabold text-sm text-slate-900">{user.name || 'Patient'}</h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {user.age ? `${user.age} yrs · ` : ''}{user.gender || 'Patient'}{user.location ? ` · ${user.location}` : ''}
+              </p>
             </div>
             <div className="text-right">
               <span className="text-[10px] font-bold text-slate-400 block uppercase">Blood Group</span>
-              <span className="text-xl font-black text-red-600 tracking-tight">{user.bloodGroup || 'O+'}</span>
+              <span className="text-xl font-black text-red-600 tracking-tight">{user.bloodGroup || 'Not specified'}</span>
             </div>
           </div>
 
@@ -58,15 +60,19 @@ export const EmergencyCardModal: React.FC<EmergencyCardModalProps> = ({
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 block uppercase">Primary Emergency Contact</span>
-                <span className="font-bold text-slate-800 text-xs">{user.emergencyContact}</span>
+                <span className="font-bold text-slate-800 text-xs">{user.emergencyContact || 'Not provided'}</span>
               </div>
             </div>
-            <a
-              href={`tel:${user.emergencyContact.split(' ')[0]}`}
-              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-black text-[11px] rounded-xl shadow-xs transition-colors"
-            >
-              Call 📞
-            </a>
+            {user.emergencyContact ? (
+              <a
+                href={`tel:${user.emergencyContact.split(' ')[0]}`}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-black text-[11px] rounded-xl shadow-xs transition-colors"
+              >
+                Call 📞
+              </a>
+            ) : (
+              <span className="text-[11px] text-slate-400 font-medium">None</span>
+            )}
           </div>
 
           {/* Known Allergies Callout */}
@@ -94,12 +100,18 @@ export const EmergencyCardModal: React.FC<EmergencyCardModalProps> = ({
               Active Daily Prescriptions
             </span>
             <div className="space-y-1">
-              {reminders.map(rem => (
-                <div key={rem.id} className="p-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-slate-800">{rem.medicineName}</span>
-                  <span className="text-slate-500">{rem.dosage}</span>
+              {reminders.length > 0 ? (
+                reminders.map(rem => (
+                  <div key={rem.id} className="p-2 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-slate-800">{rem.medicineName}</span>
+                    <span className="text-slate-500">{rem.dosage}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-center text-slate-400 text-[11px]">
+                  No active medication reminders logged.
                 </div>
-              ))}
+              )}
             </div>
           </div>
 

@@ -8,6 +8,8 @@ import { nearbyDoctors } from '../../data/mockData';
 interface AppointmentsListProps {
   appointments: Appointment[];
   language: Language;
+  patientName?: string;
+  patientId?: string;
   onBack: () => void;
   onBookNew: (newApt: Appointment) => void;
   onFindDoctor: () => void;
@@ -16,6 +18,8 @@ interface AppointmentsListProps {
 export const AppointmentsList: React.FC<AppointmentsListProps> = ({
   appointments,
   language: _language,
+  patientName,
+  patientId,
   onBack,
   onBookNew,
   onFindDoctor
@@ -24,11 +28,15 @@ export const AppointmentsList: React.FC<AppointmentsListProps> = ({
   const [showBookModal, setShowBookModal] = useState(false);
 
   // New appointment form state
-  const [selectedDoctorId, setSelectedDoctorId] = useState(nearbyDoctors[0].id);
-  const [aptDate, setAptDate] = useState('28 Sep 2024');
-  const [aptTime, setAptTime] = useState('11:00 AM');
+  const [selectedDoctorId, setSelectedDoctorId] = useState(nearbyDoctors[0]?.id || '1');
+  const [aptDate, setAptDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  });
+  const [aptTime, setAptTime] = useState('10:00 AM');
   const [aptType, setAptType] = useState<'In-person' | 'Teleconsultation'>('In-person');
-  const [aptNotes, setAptNotes] = useState('General health checkup');
+  const [aptNotes, setAptNotes] = useState('');
 
   const upcomingList = appointments.filter(a => a.status === 'upcoming');
   const pastList = appointments.filter(a => a.status !== 'upcoming');
@@ -39,8 +47,8 @@ export const AppointmentsList: React.FC<AppointmentsListProps> = ({
 
     const newApt: Appointment = {
       id: `apt_${Date.now()}`,
-      patientName: 'Chaitanya',
-      patientId: 'usr_chaitanya_01',
+      patientName: patientName || 'Patient',
+      patientId: patientId || `usr_${Date.now()}`,
       doctorName: doc.name,
       doctorSpecialty: doc.specialty,
       hospitalClinic: doc.clinicName,
@@ -48,7 +56,7 @@ export const AppointmentsList: React.FC<AppointmentsListProps> = ({
       time: aptTime,
       type: aptType,
       status: 'upcoming',
-      notes: aptNotes
+      notes: aptNotes || 'General health consultation'
     };
 
     onBookNew(newApt);

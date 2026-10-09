@@ -44,7 +44,7 @@ function AarogyaAppContent() {
   const [onboardingStep, setOnboardingStep] = useState<1 | 2 | null>(null);
 
   // Selected Record for Summary Inspection
-  const [activeRecordForSummary, setActiveRecordForSummary] = useState<MedicalRecord>(records[0]);
+  const [activeRecordForSummary, setActiveRecordForSummary] = useState<MedicalRecord | null>(records[0] || null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string>('');
 
   // Modals state
@@ -65,7 +65,7 @@ function AarogyaAppContent() {
 
   // Determine current active screen title for PhoneFrame top bar
   const getScreenTitle = () => {
-    if (role === 'doctor') return 'Doctor Portal (Dr. S. Kumar)';
+    if (role === 'doctor') return 'Doctor Portal';
     if (onboardingStep === 1) return 'Step 01: Language Selection';
     if (onboardingStep === 2) return 'Step 02: Health Profile Setup';
     if (patientView === 'home') return 'Screen 03: Patient Home Dashboard';
@@ -192,6 +192,7 @@ function AarogyaAppContent() {
                 handleSaveScannedRecord(publishedRecord);
               }}
               appointments={appointments}
+              doctorName={user.name ? (user.name.startsWith('Dr.') ? user.name : `Dr. ${user.name}`) : 'Doctor'}
             />
           ) : (
             /* PATIENT WORKFLOW */
@@ -245,7 +246,7 @@ function AarogyaAppContent() {
               ) : patientView === 'summary' ? (
                 /* Step 05: Understand / Report Summary */
                 <ReportSummaryStep
-                  record={activeRecordForSummary || records[0]}
+                  record={activeRecordForSummary || records[0] || null}
                   language={language}
                   onBack={() => setPatientView('home')}
                   onAskFollowUp={(question) => {
@@ -296,6 +297,8 @@ function AarogyaAppContent() {
                 <AppointmentsList
                   appointments={appointments}
                   language={language}
+                  patientName={user.name}
+                  patientId={user.id}
                   onBack={() => setPatientView('home')}
                   onBookNew={bookAppointment}
                   onFindDoctor={() => setPatientView('doctors')}

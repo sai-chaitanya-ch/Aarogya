@@ -25,9 +25,9 @@ interface HealthDataContextType {
 
 const HealthDataContext = createContext<HealthDataContextType | undefined>(undefined);
 
-const STORAGE_RECORDS_KEY = 'aarogya_records';
-const STORAGE_REMINDERS_KEY = 'aarogya_reminders';
-const STORAGE_APPOINTMENTS_KEY = 'aarogya_appointments';
+const STORAGE_RECORDS_KEY = 'aarogya_records_v2';
+const STORAGE_REMINDERS_KEY = 'aarogya_reminders_v2';
+const STORAGE_APPOINTMENTS_KEY = 'aarogya_appointments_v2';
 
 export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isGuestDemo } = useAuth();
@@ -86,8 +86,8 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             documentType: d.document_type,
             patientName: user.name,
             visitDate: d.visit_date,
-            doctorName: 'Dr. S. Kumar',
-            facilityName: d.facility_name || 'City Care Clinic',
+            doctorName: d.doctor_name || 'Consulting Clinician',
+            facilityName: d.facility_name || 'Healthcare Facility',
             status: d.status,
             aiSummary: d.ai_summary || { en: 'Record verified.' },
             keyFindings: d.review_alerts || [],
@@ -129,9 +129,9 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             id: a.id,
             patientName: user.name,
             patientId: user.id,
-            doctorName: 'Dr. S. Kumar',
-            doctorSpecialty: 'General Medicine',
-            hospitalClinic: 'City Care Clinic',
+            doctorName: a.doctor_name || 'Consulting Clinician',
+            doctorSpecialty: a.doctor_specialty || 'General Medicine',
+            hospitalClinic: a.hospital_clinic || 'Healthcare Clinic',
             date: a.appointment_date,
             time: a.appointment_time,
             type: a.consultation_type,

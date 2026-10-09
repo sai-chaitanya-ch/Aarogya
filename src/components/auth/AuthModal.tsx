@@ -139,7 +139,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   required
                   value={fullName}
                   onChange={e => setFullName(e.target.value)}
-                  placeholder="e.g. Chaitanya V"
+                  placeholder="Enter your full name"
                   className="w-full pl-9 pr-3 py-2 border rounded-xl outline-none focus:border-teal-700 text-xs"
                 />
               </div>

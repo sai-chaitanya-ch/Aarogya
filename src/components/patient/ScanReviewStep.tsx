@@ -5,8 +5,6 @@ import {
 } from 'lucide-react';
 import { MedicalRecord, Language, ExtractedMedicine, ExtractedLabValue } from '../../types';
 import { translations } from '../../data/translations';
-import { analyzeDocument } from '../../services/aiService';
-import { samplePrescriptionSvg, sampleCBCReportSvg } from '../../data/mockData';
 import { processDocumentWithBackend } from '../../services/api';
 import { LiveCameraScanner } from './LiveCameraScanner';
 
@@ -27,8 +25,6 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Document selection mode: 'custom' | 'prescription' | 'cbc'
-  const [selectedPreset, setSelectedPreset] = useState<'custom' | 'prescription' | 'cbc'>('prescription');
   const [customFileUrl, setCustomFileUrl] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
@@ -41,61 +37,21 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const [rotation, setRotation] = useState(0);
   const [contrastEnhanced, setContrastEnhanced] = useState(false);
 
-  // Extracted fields editable state
-  const [patientName, setPatientName] = useState('Chaitanya');
-  const [visitDate, setVisitDate] = useState('14 Sep 2024');
-  const [doctorName, setDoctorName] = useState('Dr. S. Kumar');
-  const [facilityName, setFacilityName] = useState('City Care Clinic');
+  // Extracted fields editable state (starts empty until document scanned)
+  const [patientName, setPatientName] = useState('');
+  const [visitDate, setVisitDate] = useState(() => 
+    new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  );
+  const [doctorName, setDoctorName] = useState('');
+  const [facilityName, setFacilityName] = useState('');
   const [docType, setDocType] = useState<'Prescription' | 'Lab Report' | 'Discharge Summary'>('Prescription');
 
-  const [medicines, setMedicines] = useState<ExtractedMedicine[]>([
-    { id: '1', name: 'Amlodipine 5 mg', dosage: '5 mg', frequency: '1 tab daily (OD)', duration: '30 days', timing: 'morning' },
-    { id: '2', name: 'Metformin 500 mg', dosage: '500 mg', frequency: '1 tab twice daily (BD) after food', duration: '30 days', timing: 'multiple' },
-    { id: '3', name: 'Atorvastatin 10 mg', dosage: '10 mg', frequency: '1 tab daily (OD)', duration: '30 days', timing: 'night' },
-  ]);
-
+  const [medicines, setMedicines] = useState<ExtractedMedicine[]>([]);
   const [labValues, setLabValues] = useState<ExtractedLabValue[]>([]);
   const [aiSummary, setAiSummary] = useState<any>({
-    en: "Prescription by Dr. S. Kumar includes 3 medicines for blood pressure, blood sugar, and cholesterol management."
+    en: "Scan or upload a document to view AI clinical explanation."
   });
-  const [reviewAlerts, setReviewAlerts] = useState<string[]>([
-    "Metformin dosage is marked strictly after food. Please verify with your doctor before altering."
-  ]);
-
-  const handleSelectPreset = (preset: 'prescription' | 'cbc') => {
-    setSelectedPreset(preset);
-    setCustomFileUrl(null);
-    setUploadedFile(null);
-    setIsProcessing(true);
-
-    processDocumentWithBackend(null, preset, patientName).then(({ record }) => {
-      setPatientName(record.patientName);
-      setVisitDate(record.visitDate);
-      setDoctorName(record.doctorName);
-      setFacilityName(record.facilityName);
-      setDocType(record.documentType as any);
-      setAiSummary(record.aiSummary);
-      setReviewAlerts(record.keyFindings || []);
-      if (record.medicines && record.medicines.length > 0) {
-        setMedicines(record.medicines);
-      }
-      if (record.labValues && record.labValues.length > 0) {
-        setLabValues(record.labValues);
-      }
-      setIsProcessing(false);
-    }).catch(() => {
-      const res = analyzeDocument(preset);
-      setPatientName(res.patientName);
-      setVisitDate(res.visitDate);
-      setDoctorName(res.doctorName);
-      setFacilityName(res.facilityName);
-      setMedicines(res.medicines);
-      setLabValues(res.labValues);
-      setAiSummary(res.aiExplanation);
-      setReviewAlerts(res.reviewAlerts);
-      setIsProcessing(false);
-    });
-  };
+  const [reviewAlerts, setReviewAlerts] = useState<string[]>([]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -104,7 +60,6 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
     setUploadedFile(file);
     const objectUrl = URL.createObjectURL(file);
     setCustomFileUrl(objectUrl);
-    setSelectedPreset('custom');
     setIsProcessing(true);
 
     processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
@@ -128,24 +83,23 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   };
 
   const handleSave = () => {
-    const activeFileUrl = customFileUrl || (selectedPreset === 'prescription' ? samplePrescriptionSvg : sampleCBCReportSvg);
+    const activeFileUrl = customCapturedImage || customFileUrl || '';
     const newRecord: MedicalRecord = {
       id: `rec_${Date.now()}`,
-      title: `${docType} - ${doctorName}`,
+      title: `${docType}${doctorName ? ` - ${doctorName}` : ''}`,
       documentType: docType,
-      patientName,
-      visitDate,
-      doctorName,
-      facilityName,
+      patientName: patientName || 'Patient',
+      visitDate: visitDate || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      doctorName: doctorName || 'Consulting Physician',
+      facilityName: facilityName || 'Healthcare Center',
       specialty: docType === 'Prescription' ? 'General Medicine' : 'Pathology',
       originalFileUrl: activeFileUrl,
-      originalFileName: uploadedFile ? uploadedFile.name : (selectedPreset === 'prescription' ? 'Prescription_DrKumar.jpg' : 'CBC_LabReport.pdf'),
+      originalFileName: uploadedFile ? uploadedFile.name : `scan_${Date.now()}.jpg`,
       status: isEditing ? 'corrected' : 'verified',
       aiSummary: aiSummary,
       keyFindings: reviewAlerts,
       medicines: docType === 'Prescription' ? medicines : [],
       labValues: docType === 'Lab Report' ? labValues : [],
-      followUpDate: docType === 'Prescription' ? '2024-09-21' : undefined,
       createdAt: new Date().toISOString()
     };
 
@@ -153,7 +107,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
     onViewSummary(newRecord);
   };
 
-  const activeImageSrc = customFileUrl || (selectedPreset === 'prescription' ? samplePrescriptionSvg : sampleCBCReportSvg);
+  const activeImageSrc = customCapturedImage || customFileUrl || '';
 
   return (
     <div className="flex-1 p-4 bg-[#f8faf9] flex flex-col justify-between">
@@ -228,7 +182,6 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                   const url = URL.createObjectURL(file);
                   setCustomCapturedImage(url);
                   setCustomFileUrl(url);
-                  setSelectedPreset('custom');
                   setIsProcessing(true);
                   processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
                     setPatientName(record.patientName);
@@ -251,71 +204,41 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           </label>
         </div>
 
-        {/* Source Selector Pills */}
-        <div className="mt-2 flex items-center justify-between bg-slate-200/70 p-1 rounded-xl text-xs font-semibold gap-1">
-          <button
-            type="button"
-            onClick={() => {
-              setCustomCapturedImage(null);
-              setCustomFile(null);
-              handleSelectPreset('prescription');
-            }}
-            className={`flex-1 py-1.5 rounded-lg transition-all text-center ${
-              selectedPreset === 'prescription' ? 'bg-white text-teal-900 shadow-xs font-bold' : 'text-slate-600'
-            }`}
-          >
-            Prescription
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setCustomCapturedImage(null);
-              setCustomFile(null);
-              handleSelectPreset('cbc');
-            }}
-            className={`flex-1 py-1.5 rounded-lg transition-all text-center ${
-              selectedPreset === 'cbc' ? 'bg-white text-teal-900 shadow-xs font-bold' : 'text-slate-600'
-            }`}
-          >
-            Lab Report
-          </button>
-          {(customCapturedImage || customFileUrl || uploadedFile) && (
-            <button
-              type="button"
-              onClick={() => setSelectedPreset('custom')}
-              className={`flex-1 py-1.5 rounded-lg transition-all text-center truncate px-1 ${
-                selectedPreset === 'custom' ? 'bg-white text-teal-900 shadow-xs font-bold' : 'text-slate-600'
-              }`}
-            >
-              Custom File
-            </button>
-          )}
-        </div>
-
-        {/* Scanned Image Preview Container */}
-        <div className="relative mt-3 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-xs group">
-          <div 
-            className="w-full h-52 flex items-center justify-center p-2 bg-slate-50 transition-transform duration-300"
-            style={{
-              transform: `rotate(${rotation}deg)`,
-              filter: contrastEnhanced ? 'contrast(135%) brightness(95%)' : 'none'
-            }}
-          >
-            <img
-              src={customCapturedImage || activeImageSrc}
-              alt="Medical Document Preview"
-              className="max-h-full max-w-full object-contain rounded-lg"
-            />
+        {/* Scanned Image Preview or Empty State */}
+        {!activeImageSrc ? (
+          <div className="mt-3 p-8 rounded-2xl border-2 border-dashed border-teal-300 bg-teal-50/40 flex flex-col items-center justify-center text-center space-y-2">
+            <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-800 flex items-center justify-center mb-1">
+              <Camera className="w-6 h-6" />
+            </div>
+            <span className="text-xs font-bold text-teal-950">No Document Scanned Yet</span>
+            <p className="text-[11px] text-slate-500 max-w-xs">
+              Tap "Open Live Camera" or "Upload Photo / PDF" above to scan your prescription or lab report.
+            </p>
           </div>
+        ) : (
+          <div className="relative mt-3 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-xs group">
+            <div 
+              className="w-full h-52 flex items-center justify-center p-2 bg-slate-50 transition-transform duration-300"
+              style={{
+                transform: `rotate(${rotation}deg)`,
+                filter: contrastEnhanced ? 'contrast(135%) brightness(95%)' : 'none'
+              }}
+            >
+              <img
+                src={activeImageSrc}
+                alt="Medical Document Preview"
+                className="max-h-full max-w-full object-contain rounded-lg"
+              />
+            </div>
 
-          {/* Crop & Adjust Overlay Button */}
-          <button
-            onClick={() => setShowCropModal(true)}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/80 hover:bg-slate-900 text-white rounded-full text-xs font-semibold backdrop-blur-md shadow-md transition-all active:scale-95"
-          >
-            <Crop className="w-3.5 h-3.5" />
-            <span>{t.cropAdjust}</span>
-          </button>
+            {/* Crop & Adjust Overlay Button */}
+            <button
+              onClick={() => setShowCropModal(true)}
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/80 hover:bg-slate-900 text-white rounded-full text-xs font-semibold backdrop-blur-md shadow-md transition-all active:scale-95"
+            >
+              <Crop className="w-3.5 h-3.5" />
+              <span>{t.cropAdjust}</span>
+            </button>
 
           {/* OCR Processing overlay */}
           {isProcessing && (
@@ -325,6 +248,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
             </div>
           )}
         </div>
+        )}
 
         {/* Extracted Information Section */}
         <div className="mt-4 bg-white rounded-2xl p-4 border border-slate-100 shadow-xs">
@@ -411,11 +335,11 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                     onClick={() => {
                       const newMed: ExtractedMedicine = {
                         id: String(Date.now()),
-                        name: 'Paracetamol 500 mg',
-                        dosage: '500 mg',
-                        frequency: '1 tab SOS (as needed)',
-                        duration: '3 days',
-                        timing: 'afternoon'
+                        name: '',
+                        dosage: '',
+                        frequency: '',
+                        duration: '',
+                        timing: 'morning'
                       };
                       setMedicines([...medicines, newMed]);
                     }}
@@ -450,12 +374,8 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                     </div>
                   ))
                 ) : (
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-red-50 border border-red-100">
-                    <span className="font-bold text-red-900">Hemoglobin (Hb)</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-extrabold text-red-600">10.8 g/dL</span>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-200 text-red-800">LOW</span>
-                    </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-center text-slate-500 text-xs">
+                    No lab test values detected in this document. Click edit to enter your test values.
                   </div>
                 )}
               </div>
@@ -545,7 +465,6 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
         <LiveCameraScanner
           onCapture={(blob, previewUrl) => {
             setCustomCapturedImage(previewUrl);
-            setSelectedPreset('custom');
             setShowLiveCamera(false);
             setIsProcessing(true);
             const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
@@ -570,7 +489,6 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
               setCustomFile(file);
               const url = URL.createObjectURL(file);
               setCustomCapturedImage(url);
-              setSelectedPreset('custom');
               setShowLiveCamera(false);
               setIsProcessing(true);
               processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {

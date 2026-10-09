@@ -84,9 +84,9 @@ def health_check():
 @app.post("/api/documents/process")
 async def process_document(
     file: Optional[UploadFile] = File(None),
-    preset_type: Optional[str] = Form("prescription"),
-    patient_name: Optional[str] = Form("Chaitanya"),
-    user_id: Optional[str] = Form("usr_default_01")
+    preset_type: Optional[str] = Form("custom"),
+    patient_name: Optional[str] = Form(""),
+    user_id: Optional[str] = Form("usr_patient_01")
 ):
     """
     1. Runs OCR or extracts directly via Gemini Multimodal Vision / Groq.
@@ -141,8 +141,8 @@ async def process_document(
                 "patient_id": None, # Unassociated in demo mode or set to auth UID
                 "title": f"{structured_data.get('document_type', 'Medical Record')} - {structured_data.get('doctor_name', 'Doctor')}",
                 "document_type": structured_data.get("document_type", "Prescription"),
-                "facility_name": structured_data.get("facility_name", "Clinic"),
-                "visit_date": "2024-09-14",
+                "facility_name": structured_data.get("facility_name", ""),
+                "visit_date": structured_data.get("visit_date") or None,
                 "storage_path": storage_path,
                 "file_name": file_name,
                 "status": "verified",

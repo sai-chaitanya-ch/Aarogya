@@ -13,13 +13,18 @@ interface DoctorPortalProps {
   onSwitchToPatient: () => void;
   onPublishPrescriptionToPatient?: (record: MedicalRecord) => void;
   appointments?: Appointment[];
+  doctorName?: string;
 }
 
 export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   onSwitchToPatient,
   onPublishPrescriptionToPatient,
-  appointments = []
+  appointments = [],
+  doctorName = 'Consultant'
 }) => {
+  const currentDoctorName = doctorName ? (doctorName.startsWith('Dr.') ? doctorName : `Dr. ${doctorName}`) : 'Dr. Clinician';
+  const docInitials = currentDoctorName.replace(/^Dr\.\s*/, '').slice(0, 2).toUpperCase() || 'DR';
+
   // Navigation tabs for doctor: home | patients | appointments | messages | profile
   const [activeTab, setActiveTab] = useState<'home' | 'patients' | 'appointments' | 'messages' | 'profile'>('home');
   const fileUploadRef = useRef<HTMLInputElement>(null);
@@ -41,14 +46,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   const [newMedName, setNewMedName] = useState('');
   const [newMedDose, setNewMedDose] = useState('1 tab OD');
   const [newMedDuration, setNewMedDuration] = useState('7 days');
-  const [prescriptionMedicines, setPrescriptionMedicines] = useState<ExtractedMedicine[]>([
-    { id: '1', name: 'Paracetamol 500 mg', dosage: '500 mg', frequency: '1 tablet (TDS) - 5 days', duration: '5 days', timing: 'morning' },
-    { id: '2', name: 'Levocetirizine 5 mg', dosage: '5 mg', frequency: '1 tablet (OD) - 7 days', duration: '7 days', timing: 'night' },
-    { id: '3', name: 'Montelukast 10 mg', dosage: '10 mg', frequency: '1 tablet (HS) - 7 days', duration: '7 days', timing: 'night' },
-  ]);
-  const [rxInstructions, setRxInstructions] = useState('Take medicine after food. Avoid cold drinks. Follow up after 1 week.');
-  const [rxFollowUpDate, setRxFollowUpDate] = useState('21/09/2024');
-  const [rxFollowUpTime, setRxFollowUpTime] = useState('10:00 AM');
+  const [prescriptionMedicines, setPrescriptionMedicines] = useState<ExtractedMedicine[]>([]);
+  const [rxInstructions, setRxInstructions] = useState('');
+  const [rxFollowUpDate, setRxFollowUpDate] = useState('');
+  const [rxFollowUpTime, setRxFollowUpTime] = useState('');
   const [sendNotification, setSendNotification] = useState(true);
 
   // New patient modal state
@@ -59,12 +60,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   const [newPatAbha, setNewPatAbha] = useState('');
 
   // Messages state
-  const [activeChatPatient, setActiveChatPatient] = useState<PatientListItem | null>(patients[0]);
-  const [chatMessages, setChatMessages] = useState<{ sender: 'doc' | 'patient'; text: string; time: string }[]>([
-    { sender: 'patient', text: 'Good morning doctor, I have uploaded my latest report.', time: '10:20 AM' },
-    { sender: 'doc', text: 'Hello Ramesh. I reviewed your CBC report. Your Hemoglobin is slightly low at 10.8 g/dL. Have you been feeling tired?', time: '10:22 AM' },
-    { sender: 'patient', text: 'A little bit in the evenings. Should I start any iron supplement?', time: '10:24 AM' }
-  ]);
+  const [activeChatPatient, setActiveChatPatient] = useState<PatientListItem | null>(patients[0] || null);
+  const [chatMessages, setChatMessages] = useState<{ sender: 'doc' | 'patient'; text: string; time: string }[]>([]);
   const [chatInput, setChatInput] = useState('');
 
   const handleAddMedicineToRx = () => {
@@ -87,19 +84,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
     // Create new medical record to sync to patient
     const publishedRecord: MedicalRecord = {
       id: `rx_doc_${Date.now()}`,
-      title: `Prescription by Dr. S. Kumar`,
+      title: `Prescription by ${currentDoctorName}`,
       documentType: 'Prescription',
       patientName: selectedPatient.name,
-      visitDate: 'Today, 09 Oct 2026',
-      doctorName: 'Dr. S. Kumar',
+      visitDate: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+      doctorName: currentDoctorName,
       facilityName: 'City Care Clinic',
       specialty: 'General Medicine',
       status: 'verified',
       aiSummary: {
-        en: `Prescription published by Dr. S. Kumar containing ${prescriptionMedicines.length} medications. Instructions: ${rxInstructions}`,
-        te: `డాక్టర్ ఎస్. కుమార్ ${prescriptionMedicines.length} మందులతో ప్రిస్క్రిప్షన్ విడుదల చేశారు. సూచనలు: ${rxInstructions}`,
-        hi: `डॉ. एस. कुमार द्वारा ${prescriptionMedicines.length} दवाओं के साथ पर्चा जारी किया गया। निर्देश: ${rxInstructions}`,
-        ta: `டாக்டர் எஸ். குமார் ${prescriptionMedicines.length} மருந்துகளுடன் மருந்துச்சீட்டை வெளியிட்டுள்ளார்.`
+        en: `Prescription published by ${currentDoctorName} containing ${prescriptionMedicines.length} medications. Instructions: ${rxInstructions || 'Follow prescribed timing.'}`,
+        te: `${currentDoctorName} ${prescriptionMedicines.length} మందులతో ప్రిస్క్రిప్షన్ విడుదల చేశారు.`,
+        hi: `${currentDoctorName} द्वारा ${prescriptionMedicines.length} दवाओं के साथ पर्चा जारी किया गया।`,
+        ta: `${currentDoctorName} ${prescriptionMedicines.length} மருந்துகளுடன் மருந்துச்சீட்டை வெளியிட்டுள்ளார்.`
       },
       medicines: prescriptionMedicines,
       labValues: [],
@@ -160,11 +157,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
       <div className="p-3.5 bg-white border-b border-slate-100 flex items-center justify-between shadow-xs sticky top-0 z-20">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-teal-800 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-            SK
+            {docInitials}
           </div>
           <div>
             <div className="flex items-center gap-1.5 font-extrabold text-xs text-slate-900">
-              <span>Dr. S. Kumar</span>
+              <span>{currentDoctorName}</span>
               <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
             </div>
             <div className="text-[10px] text-teal-800 font-semibold">
@@ -191,10 +188,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
             {/* Greeting */}
             <div className="p-3.5 bg-gradient-to-r from-teal-50 via-emerald-50/40 to-teal-50 rounded-3xl border border-teal-100">
               <h2 className="text-lg font-black text-slate-900">
-                Good morning, Dr. S. Kumar 👨‍⚕️
+                Good morning, {currentDoctorName} 👨‍⚕️
               </h2>
               <p className="text-xs text-slate-600 font-medium mt-0.5">
-                City Care Clinic · 12 consultations scheduled today
+                City Care Clinic · {appointments.length} consultation{appointments.length === 1 ? '' : 's'} scheduled today
               </p>
             </div>
 
@@ -211,15 +208,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                 onClick={() => setActiveTab('appointments')}
                 className="p-2.5 bg-white rounded-2xl border border-slate-100 shadow-2xs text-center cursor-pointer hover:border-teal-300"
               >
-                <span className="text-lg font-black text-teal-800 block">12</span>
+                <span className="text-lg font-black text-teal-800 block">{appointments.length}</span>
                 <span className="text-[10px] font-bold text-slate-500">Today</span>
               </div>
               <div className="p-2.5 bg-white rounded-2xl border border-slate-100 shadow-2xs text-center">
-                <span className="text-lg font-black text-amber-600 block">5</span>
+                <span className="text-lg font-black text-amber-600 block">
+                  {appointments.filter(a => a.status === 'upcoming').length}
+                </span>
                 <span className="text-[10px] font-bold text-slate-500">Pending</span>
               </div>
               <div className="p-2.5 bg-white rounded-2xl border border-slate-100 shadow-2xs text-center">
-                <span className="text-lg font-black text-blue-600 block">3</span>
+                <span className="text-lg font-black text-blue-600 block">
+                  {patients.filter(p => p.tag === 'Follow-up').length}
+                </span>
                 <span className="text-[10px] font-bold text-slate-500">Follow-ups</span>
               </div>
             </div>
@@ -254,8 +255,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
 
               <button
                 onClick={() => {
-                  setSelectedPatient(patients[0]);
-                  setShowCreatePrescription(true);
+                  if (patients.length > 0) {
+                    setSelectedPatient(patients[0]);
+                    setShowCreatePrescription(true);
+                  } else {
+                    setShowAddPatientModal(true);
+                  }
                 }}
                 className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center gap-2.5 hover:border-teal-300 text-left transition-all"
               >
@@ -285,58 +290,31 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
             {/* Today's Appointments Agenda */}
             <div className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-xs space-y-2.5">
               <div className="flex items-center justify-between text-xs font-bold text-slate-800">
-                <span>Recent Appointments</span>
+                <span>Today's Appointments Agenda</span>
                 <button onClick={() => setActiveTab('appointments')} className="text-teal-700 text-[11px]">View all</button>
               </div>
 
               <div className="space-y-2 text-xs">
-                <div className="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between border border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-mono text-[11px] font-bold text-slate-600">09:00 AM</span>
-                    <div>
-                      <div className="font-bold text-slate-900">Ramesh K</div>
-                      <div className="text-[10px] text-slate-500">In-person · Follow-up</div>
+                {appointments && appointments.length > 0 ? (
+                  appointments.slice(0, 3).map((apt) => (
+                    <div key={apt.id} className="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between border border-slate-100">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono text-[11px] font-bold text-slate-600">{apt.time}</span>
+                        <div>
+                          <div className="font-bold text-slate-900">{apt.patientName}</div>
+                          <div className="text-[10px] text-slate-500">{apt.type} · {apt.date}</div>
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 bg-teal-50 text-teal-800 border border-teal-200/60 rounded-md font-bold text-[10px]">
+                        {apt.status.toUpperCase()}
+                      </span>
                     </div>
+                  ))
+                ) : (
+                  <div className="py-6 text-center text-slate-400 text-xs bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                    No scheduled appointments for today.
                   </div>
-                  <button 
-                    onClick={() => { setSelectedPatient(patients[0]); setPatientDetailTab('overview'); }}
-                    className="px-2.5 py-1 bg-teal-700 text-white rounded-lg font-bold text-[11px] hover:bg-teal-800"
-                  >
-                    Start
-                  </button>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between border border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-mono text-[11px] font-bold text-slate-600">10:00 AM</span>
-                    <div>
-                      <div className="font-bold text-slate-900">Priya S</div>
-                      <div className="text-[10px] text-slate-500">In-person · New Consultation</div>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => { setSelectedPatient(patients[1]); setPatientDetailTab('overview'); }}
-                    className="px-2.5 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg font-bold text-[11px] hover:bg-slate-100"
-                  >
-                    View
-                  </button>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between border border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-mono text-[11px] font-bold text-slate-600">11:30 AM</span>
-                    <div>
-                      <div className="font-bold text-slate-900">Arjun M</div>
-                      <div className="text-[10px] text-slate-500">Online · Report Review</div>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => { setSelectedPatient(patients[2]); setPatientDetailTab('overview'); }}
-                    className="px-2.5 py-1 bg-blue-600 text-white rounded-lg font-bold text-[11px] hover:bg-blue-700"
-                  >
-                    Join
-                  </button>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -390,7 +368,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
 
             {/* Patient Cards List */}
             <div className="space-y-2">
-              {patients.filter(p => {
+              {patients.length === 0 ? (
+                <div className="py-12 px-4 text-center bg-white rounded-2xl border border-dashed border-slate-200 space-y-2">
+                  <span className="font-bold text-sm text-slate-800 block">No Patients Registered</span>
+                  <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                    Click "Add Patient" above to register and manage patients in your clinic.
+                  </p>
+                </div>
+              ) : patients.filter(p => {
                 const matchesSearch = p.name.toLowerCase().includes(patientSearch.toLowerCase()) || p.phone.includes(patientSearch);
                 const matchesFilter = patientFilter === 'all' ||
                   (patientFilter === 'followup' && p.tag === 'Follow-up') ||
@@ -531,16 +516,16 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                 <div className="font-bold text-slate-800">Basic Clinical Information</div>
                 <div className="divide-y divide-slate-50">
                   <div className="py-1.5 flex justify-between">
-                    <span className="text-slate-500">Date of Birth</span>
-                    <span className="font-medium text-slate-800">12 Mar 1997</span>
+                    <span className="text-slate-500">Age / Gender</span>
+                    <span className="font-medium text-slate-800">{selectedPatient.age} yrs · {selectedPatient.gender}</span>
                   </div>
                   <div className="py-1.5 flex justify-between">
-                    <span className="text-slate-500">Blood Group</span>
-                    <span className="font-bold text-rose-600">B+</span>
+                    <span className="text-slate-500">Contact Number</span>
+                    <span className="font-medium text-slate-800">{selectedPatient.phone}</span>
                   </div>
                   <div className="py-1.5 flex justify-between">
                     <span className="text-slate-500">Known Allergies</span>
-                    <span className="font-bold text-red-600">None known</span>
+                    <span className="font-bold text-slate-700">None reported</span>
                   </div>
                   <div className="py-1.5 flex justify-between">
                     <span className="text-slate-500">Existing Conditions</span>
@@ -555,17 +540,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                 <div className="relative">
                   <div className="absolute -left-[23px] top-1 w-3.5 h-3.5 rounded-full bg-teal-700 border-2 border-white" />
                   <div className="p-3 bg-white rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] font-bold text-teal-800">14 Sep 2024 · Follow-up Visit</span>
-                    <h4 className="font-bold text-slate-900 mt-0.5">General Medicine Consultation</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Notes: Improved symptoms, continue medication.</p>
-                  </div>
-                </div>
-                <div className="relative">
-                  <div className="absolute -left-[23px] top-1 w-3.5 h-3.5 rounded-full bg-blue-600 border-2 border-white" />
-                  <div className="p-3 bg-white rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] font-bold text-blue-700">02 Aug 2024 · Lab Report</span>
-                    <h4 className="font-bold text-slate-900 mt-0.5">Complete Blood Count (CBC)</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">City Care Lab · Hemoglobin: 10.8 g/dL</p>
+                    <span className="text-[10px] font-bold text-teal-800">{selectedPatient.lastVisit || 'Recent'} · Clinic Consultation</span>
+                    <h4 className="font-bold text-slate-900 mt-0.5">Clinical Evaluation</h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Category: {selectedPatient.tag || 'Patient'}</p>
                   </div>
                 </div>
               </div>
@@ -578,17 +555,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                   <span className="text-xs font-bold text-teal-900 block">Upload Document or Prescriptions</span>
                   <span className="text-[10px] text-slate-500">PDF, JPG, PNG (Max 10MB)</span>
                 </div>
-                {initialMedicalRecords.slice(0, 2).map((r: MedicalRecord) => (
-                  <div key={r.id} className="p-2.5 bg-white rounded-xl border flex items-center justify-between text-xs">
-                    <div>
-                      <div className="font-bold text-slate-800">{r.title}</div>
-                      <div className="text-[10px] text-slate-400">{r.visitDate} · {r.facilityName}</div>
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                      {r.documentType}
-                    </span>
-                  </div>
-                ))}
+                <div className="py-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">
+                  No medical documents uploaded for this patient yet.
+                </div>
               </div>
             )}
           </div>
@@ -818,12 +787,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
             <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <img
-                  src={activeChatPatient?.avatarUrl || patients[0].avatarUrl}
+                  src={activeChatPatient?.avatarUrl || patients[0]?.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80'}
                   alt="avatar"
                   className="w-8 h-8 rounded-full object-cover border"
                 />
                 <div>
-                  <div className="font-bold text-xs text-slate-900">{activeChatPatient?.name || 'Ramesh Kumar'}</div>
+                  <div className="font-bold text-xs text-slate-900">{activeChatPatient?.name || patients[0]?.name || 'Patient'}</div>
                   <div className="text-[10px] text-slate-400">Patient · Online</div>
                 </div>
               </div>
@@ -834,16 +803,22 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
 
             {/* Chat list */}
             <div className="flex-1 p-3 overflow-y-auto space-y-2 text-xs">
-              {chatMessages.map((m, i) => (
-                <div key={i} className={`flex flex-col ${m.sender === 'doc' ? 'items-end' : 'items-start'}`}>
-                  <div className={`p-2.5 rounded-xl max-w-[85%] ${
-                    m.sender === 'doc' ? 'bg-teal-700 text-white rounded-br-none' : 'bg-slate-100 text-slate-800 rounded-bl-none'
-                  }`}>
-                    {m.text}
+              {chatMessages.length > 0 ? (
+                chatMessages.map((m, i) => (
+                  <div key={i} className={`flex flex-col ${m.sender === 'doc' ? 'items-end' : 'items-start'}`}>
+                    <div className={`p-2.5 rounded-xl max-w-[85%] ${
+                      m.sender === 'doc' ? 'bg-teal-700 text-white rounded-br-none' : 'bg-slate-100 text-slate-800 rounded-bl-none'
+                    }`}>
+                      {m.text}
+                    </div>
+                    <span className="text-[9px] text-slate-400 mt-0.5 px-1">{m.time}</span>
                   </div>
-                  <span className="text-[9px] text-slate-400 mt-0.5 px-1">{m.time}</span>
+                ))
+              ) : (
+                <div className="flex-1 h-full flex flex-col items-center justify-center p-6 text-center text-slate-400 text-xs">
+                  No active chat messages with this patient. Type a message below to start consultation.
                 </div>
-              ))}
+              )}
             </div>
 
             {/* Chat input */}
@@ -870,45 +845,24 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
           <div className="space-y-3">
             <h2 className="text-sm font-extrabold text-slate-900">Appointments Schedule</h2>
             <div className="space-y-2 text-xs">
-              {appointments && appointments.length > 0 && appointments.map(apt => (
-                <div key={apt.id} className="p-3 bg-teal-50/70 rounded-2xl border border-teal-200 shadow-xs flex items-center justify-between">
-                  <div>
-                    <div className="font-bold text-slate-900">{apt.patientName}</div>
-                    <div className="text-[11px] text-teal-800">{apt.date} at {apt.time} · {apt.type}</div>
+              {appointments && appointments.length > 0 ? (
+                appointments.map(apt => (
+                  <div key={apt.id} className="p-3 bg-teal-50/70 rounded-2xl border border-teal-200 shadow-xs flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-slate-900">{apt.patientName}</div>
+                      <div className="text-[11px] text-teal-800">{apt.date} at {apt.time} · {apt.type}</div>
+                    </div>
+                    <span className="px-2 py-0.5 bg-teal-600 text-white rounded-full font-bold text-[10px]">
+                      Patient Booked
+                    </span>
                   </div>
-                  <span className="px-2 py-0.5 bg-teal-600 text-white rounded-full font-bold text-[10px]">
-                    Patient Booked
-                  </span>
+                ))
+              ) : (
+                <div className="py-12 px-4 text-center text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200 space-y-1">
+                  <span className="font-bold text-slate-700 block">No Appointments Found</span>
+                  <p>When patients book consultations through Aarogya, their bookings will appear here.</p>
                 </div>
-              ))}
-
-              <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900">Ramesh Kumar (28 Y)</div>
-                  <div className="text-[11px] text-slate-500">09:00 AM · In-person Consultation</div>
-                </div>
-                <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px]">
-                  Next in Queue
-                </span>
-              </div>
-              <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900">Priya Sharma (35 Y)</div>
-                  <div className="text-[11px] text-slate-500">10:00 AM · New Consultation</div>
-                </div>
-                <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full font-bold text-[10px]">
-                  Confirmed
-                </span>
-              </div>
-              <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900">Arjun Mehta (42 Y)</div>
-                  <div className="text-[11px] text-slate-500">11:30 AM · Online Teleconsult</div>
-                </div>
-                <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-bold text-[10px]">
-                  Teleconsult
-                </span>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -918,12 +872,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
           <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-3 text-xs">
             <div className="flex items-center gap-3">
               <div className="w-14 h-14 rounded-full bg-teal-800 text-white font-bold text-xl flex items-center justify-center">
-                SK
+                {docInitials}
               </div>
               <div>
-                <h3 className="font-bold text-sm text-slate-900">Dr. S. Kumar</h3>
+                <h3 className="font-bold text-sm text-slate-900">{currentDoctorName}</h3>
                 <p className="text-teal-800 font-semibold">MBBS, MD (General Medicine)</p>
-                <p className="text-slate-400 text-[10px]">Reg: APMC12345 · 14 yrs experience</p>
+                <p className="text-slate-400 text-[10px]">Registered Physician</p>
               </div>
             </div>
             <div className="pt-2 border-t border-slate-100 space-y-1.5 text-slate-600">

@@ -99,8 +99,9 @@ export async function processDocumentWithBackend(
   const fallback = analyzeDocument(presetType, patientName);
   const fallbackRecord: MedicalRecord = {
     id: `rec_${Date.now()}`,
-    title: presetType === 'prescription' ? 'Prescription - Dr. S. Kumar' : 'Complete Blood Count (CBC)',
-    documentType: presetType === 'prescription' ? 'Prescription' : 'Lab Report',
+    title: `${fallback.documentType || (presetType === 'prescription' ? 'Prescription' : 'Lab Report')}${fallback.doctorName ? ` - ${fallback.doctorName}` : fallback.facilityName ? ` - ${fallback.facilityName}` : ''}`,
+    documentType: fallback.documentType || (presetType === 'prescription' ? 'Prescription' : 'Lab Report'),
+
     patientName,
     visitDate: fallback.visitDate,
     doctorName: fallback.doctorName,

@@ -20,7 +20,7 @@ interface AuthContextType {
   continueAsGuest: (selectedRole?: UserRole) => void;
 }
 
-const LOCAL_STORAGE_USER_KEY = 'aarogya_user_profile';
+const LOCAL_STORAGE_USER_KEY = 'aarogya_user_profile_v2';
 const LOCAL_STORAGE_ROLE_KEY = 'aarogya_user_role';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

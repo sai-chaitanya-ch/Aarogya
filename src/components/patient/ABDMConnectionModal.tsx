@@ -27,9 +27,9 @@ export const ABDMConnectionModal: React.FC<ABDMConnectionModalProps> = ({
   const [connectionMethod, setConnectionMethod] = useState<ConnectionMethod>('abha');
 
   // Input states for the three options
-  const [abhaNumber, setAbhaNumber] = useState('91-1234-5678-9012');
-  const [aadhaarNumber, setAadhaarNumber] = useState('5432 8765 9012');
-  const [phoneNumber, setPhoneNumber] = useState(user.phone || '98765 43210');
+  const [abhaNumber, setAbhaNumber] = useState('');
+  const [aadhaarNumber, setAadhaarNumber] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState(user.phone || '');
 
   const [otp, setOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
@@ -40,11 +40,11 @@ export const ABDMConnectionModal: React.FC<ABDMConnectionModalProps> = ({
     setIsVerifying(true);
     setTimeout(() => {
       setIsVerifying(false);
-      const generatedAbha = abhaNumber || '91-1234-5678-9012';
+      const generatedAbha = abhaNumber || aadhaarNumber || phoneNumber || `ABHA-${Date.now().toString().slice(-8)}`;
       onUpdateUser({
         abhaLinked: true,
         abhaId: generatedAbha,
-        abhaAddress: `${user.name.toLowerCase().replace(/\s+/g, '')}@abdm`
+        abhaAddress: `${(user.name || 'user').toLowerCase().replace(/\s+/g, '')}@abdm`
       });
       setStep('connected');
     }, 1000);

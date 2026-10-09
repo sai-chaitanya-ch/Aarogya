@@ -42,7 +42,7 @@ export const OnboardingSteps: React.FC<OnboardingStepsProps> = ({
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSaveProfile({
-      name: name || 'Chaitanya',
+      name: name || 'User',
       dob,
       bloodGroup,
       location
@@ -50,14 +50,29 @@ export const OnboardingSteps: React.FC<OnboardingStepsProps> = ({
     onNext();
   };
 
-  const simulateVoiceFill = (field: string) => {
+  const handleVoiceInput = (field: 'name' | 'location') => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert('Speech recognition is not supported in this browser. Please type directly.');
+      return;
+    }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = language === 'te' ? 'te-IN' : language === 'hi' ? 'hi-IN' : language === 'ta' ? 'ta-IN' : 'en-IN';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
     setIsRecording(true);
-    setTimeout(() => {
+    recognition.onresult = (event: any) => {
+      const text = event.results[0][0].transcript;
+      if (field === 'name') setName(text);
+      if (field === 'location') setLocation(text);
       setIsRecording(false);
-      if (field === 'name') setName('Chaitanya V.');
-      if (field === 'location') setLocation('Vijayawada, Andhra Pradesh');
-    }, 1200);
+    };
+    recognition.onerror = () => setIsRecording(false);
+    recognition.onend = () => setIsRecording(false);
+    recognition.start();
   };
+
 
   if (step === 1) {
     return (
@@ -193,7 +208,7 @@ export const OnboardingSteps: React.FC<OnboardingStepsProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => simulateVoiceFill('name')}
+                  onClick={() => handleVoiceInput('name')}
                   title="Voice input"
                   className={`p-1 hover:text-teal-700 transition-colors ${isRecording ? 'text-red-500 animate-pulse' : ''}`}
                 >
@@ -274,7 +289,7 @@ export const OnboardingSteps: React.FC<OnboardingStepsProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => simulateVoiceFill('location')}
+                  onClick={() => handleVoiceInput('location')}
                   className="p-1 hover:text-teal-700 transition-colors"
                 >
                   <Mic className="w-4 h-4" />

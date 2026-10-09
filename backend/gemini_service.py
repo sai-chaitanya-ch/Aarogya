@@ -183,49 +183,22 @@ Document OCR Text:
             except Exception as e:
                 print(f"Failed to parse Groq JSON response: {e}")
 
-    # 3. High-quality structured fallback if both APIs are offline/misconfigured
+    # 3. Clean neutral fallback if parsing could not extract structured entities
     return {
-        "document_type": "Prescription",
-        "patient_name": "Chaitanya",
-        "visit_date": "14 Sep 2024",
-        "doctor_name": "Dr. S. Kumar",
-        "facility_name": "City Care Clinic",
-        "medicines": [
-            {
-                "name": "Amlodipine 5 mg",
-                "dosage": "5 mg",
-                "frequency": "1 tab daily (OD)",
-                "duration": "30 days",
-                "timing": "morning",
-                "instructions": "Take in morning with water"
-            },
-            {
-                "name": "Metformin 500 mg",
-                "dosage": "500 mg",
-                "frequency": "1 tab twice daily (BD) after food",
-                "duration": "30 days",
-                "timing": "multiple",
-                "instructions": "Take after breakfast and dinner"
-            },
-            {
-                "name": "Atorvastatin 10 mg",
-                "dosage": "10 mg",
-                "frequency": "1 tab daily (OD)",
-                "duration": "30 days",
-                "timing": "night",
-                "instructions": "Take at bedtime"
-            }
-        ],
+        "document_type": "Medical Document",
+        "patient_name": "",
+        "visit_date": "",
+        "doctor_name": "",
+        "facility_name": "",
+        "medicines": [],
         "lab_values": [],
         "ai_summary": {
-            "en": "Prescription by Dr. S. Kumar includes 3 medicines for blood pressure, blood sugar, and cholesterol management. Take Metformin strictly after food.",
-            "te": "డాక్టర్ ఎస్. కుమార్ రాసిన ప్రిస్క్రిప్షన్‌లో బీపీ, షుగర్ మరియు కొలెస్ట్రాల్ కోసం 3 మందులు ఉన్నాయి. మెట్‌ఫార్మిన్‌ను భోజనం తర్వాతే తీసుకోండి.",
-            "hi": "डॉ. एस. कुमार द्वारा लिखित पर्चे में बीपी, शुगर और कोलेस्ट्रॉल के लिए 3 दवाएं शामिल हैं। मेटफॉर्मिन को हमेशा भोजन के बाद लें।",
-            "ta": "டாக்டர் எஸ். குமார் இரத்த அழுத்தம், சர்க்கரை மற்றும் கொலஸ்ட்ராலுக்காக 3 மருந்துகளை பரிந்துரைத்துள்ளார்."
+            "en": "Document processed. Please verify extracted fields or retake photo if text is unclear.",
+            "te": "పత్రం ప్రాసెస్ చేయబడింది. దయచేసి వివరాలను సరిచూసుకోండి.",
+            "hi": "दस्तावेज़ संसाधित किया गया। कृपया विवरण सत्यापित करें।",
+            "ta": "ஆவணம் செயலாக்கப்பட்டது. தயவுசெய்து விவரங்களைச் சரிபார்க்கவும்."
         },
-        "review_alerts": [
-            "Please confirm Metformin dosage timing with food to prevent gastrointestinal discomfort."
-        ]
+        "review_alerts": []
     }
 
 def ask_aarogya_chat(
@@ -279,10 +252,13 @@ Guidelines:
                     )
                 )
                 if response.text:
+                    citations = []
+                    if medical_history_context and medical_history_context.strip():
+                        citations.append({"document_title": "Uploaded Medical Records", "document_date": "Recent"})
                     return {
                         "response": response.text,
                         "is_emergency": False,
-                        "citations": [{"document_title": "Recent Clinical Records", "document_date": "14 Sep 2024"}]
+                        "citations": citations
                     }
             except Exception as e:
                 print(f"Gemini chat error with {g_model}: {e}")
@@ -290,15 +266,26 @@ Guidelines:
     # 2. Attempt Groq fallback
     groq_resp = call_groq_chat(prompt=query, system_prompt=system_instruction)
     if groq_resp:
+        citations = []
+        if medical_history_context and medical_history_context.strip():
+            citations.append({"document_title": "Uploaded Medical Records", "document_date": "Recent"})
         return {
             "response": groq_resp,
             "is_emergency": False,
-            "citations": [{"document_title": "Recent Clinical Records", "document_date": "14 Sep 2024"}]
+            "citations": citations
         }
 
     # 3. Fallback response
+    if medical_history_context and medical_history_context.strip():
+        fallback_msg = f"Based on your uploaded records:\n{medical_history_context}\n\nPlease consult your doctor before changing any medications."
+        citations = [{"document_title": "Uploaded Medical Records", "document_date": "Recent"}]
+    else:
+        fallback_msg = "I am your Aarogya health copilot. No medical records have been uploaded yet. Please scan or upload your prescription or lab test report, and I will summarize it and answer your health questions in simple language."
+        citations = []
+
     return {
-        "response": f"According to your records, your latest blood report shows Hemoglobin at 10.8 g/dL (reference 12.0 - 15.5 g/dL). Your active medications include Amlodipine 5mg and Metformin 500mg. Please discuss any dosage changes with Dr. S. Kumar on 21 Sep.",
+        "response": fallback_msg,
         "is_emergency": False,
-        "citations": [{"document_title": "CBC Report", "document_date": "14 Sep 2024"}]
+        "citations": citations
     }
+

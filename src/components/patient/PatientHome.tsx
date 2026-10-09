@@ -51,7 +51,7 @@ export const PatientHome: React.FC<PatientHomeProps> = ({
             onClick={onOpenProfile}
             className="w-8 h-8 rounded-full bg-teal-100 text-teal-900 font-bold text-xs flex items-center justify-center border border-teal-200 shadow-sm"
           >
-            {user.name.slice(0, 2).toUpperCase()}
+            {user.name ? user.name.slice(0, 2).toUpperCase() : 'ME'}
           </button>
         </div>
       </div>
@@ -61,7 +61,7 @@ export const PatientHome: React.FC<PatientHomeProps> = ({
         <div>
           <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
             {t.goodMorning},<br />
-            <span className="text-teal-800">{user.name} 👋</span>
+            <span className="text-teal-800">{user.name || 'Friend'} 👋</span>
           </h1>
           <p className="mt-1 text-xs text-slate-600 font-medium">
             {t.takeCharge}

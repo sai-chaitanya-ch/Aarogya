@@ -24,24 +24,34 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
   onBack,
   onViewRecord
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'm_welcome',
-      sender: 'aarogya',
-      text: language === 'te' 
-        ? "నమస్కారం చైతన్య! నేను మీ ఆరోగ్య అసిస్టెంట్‌ని. మీ 12 రికార్డులు, మందులు మరియు రక్త పరీక్షల వివరాలు నా వద్ద ఉన్నాయి. మీరు ఏదైనా రిపోర్టు గురించి అడగవచ్చు."
-        : language === 'hi'
-        ? "नमस्ते चैतन्य! मैं आपका आरोग्य सहायक हूँ। आपके 12 मेडिकल रिकॉर्ड्स और दवाओं की जानकारी मेरे पास है। आप अपनी रिपोर्ट या दवाओं के बारे में पूछ सकते हैं।"
-        : language === 'ta'
-        ? "வணக்கம் சைதன்யா! உங்கள் மருத்துவ பதிவுகள் மற்றும் அறிக்கைகள் பற்றி நீங்கள் என்னிடம் கேட்கலாம்."
-        : "Hello Chaitanya! I am your Aarogya health copilot. I have context on your 12 medical records, 3 active medicines, and lab reports. How can I help you understand your health today?",
-      timestamp: 'Just now',
-      citations: [
-        { documentTitle: 'CBC Report (14 Sep 2024)', documentDate: '14 Sep 2024', recordId: 'rec_cbc_01' },
-        { documentTitle: 'Dr. Kumar Prescription', documentDate: '14 Sep 2024', recordId: 'rec_rx_01' }
-      ]
-    }
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const hasRecords = records && records.length > 0;
+    const welcomeText = language === 'te'
+      ? (hasRecords 
+          ? `నమస్కారం! నేను మీ ఆరోగ్య అసిస్టెంట్‌ని (Aarogya Copilot). మీ వద్ద ఉన్న ${records.length} రికార్డుల ఆధారంగా మీరు ఏవైనా సందేహాలు అడగవచ్చు.` 
+          : "నమస్కారం! నేను మీ ఆరోగ్య సహాయకుడిని (Aarogya). మీ ప్రిస్క్రిప్షన్లు, ల్యాబ్ రిపోర్టులను అప్‌లోడ్ చేయండి లేదా మీ ఆరోగ్య సందేహాలను అడగండి.")
+      : language === 'hi'
+      ? (hasRecords 
+          ? `नमस्ते! मैं आपका आरोग्य सहायक हूँ। आपके ${records.length} मेडिकल रिकॉर्ड्स के आधार पर आप कोई भी प्रश्न पूछ सकते हैं।` 
+          : "नमस्ते! मैं आपका आरोग्य स्वास्थ्य सहायक हूँ। अपने पर्चे या लैब रिपोर्ट स्कैन करें या कोई भी स्वास्थ्य प्रश्न पूछें।")
+      : language === 'ta'
+      ? (hasRecords 
+          ? `வணக்கம்! உங்கள் ${records.length} மருத்துவ அறிக்கைகளின் அடிப்படையில் என்னிடம் சந்தேகங்களைக் கேட்கலாம்.` 
+          : "வணக்கம்! உங்கள் மருத்துவ அறிக்கைகளை பதிவேற்றலாம் அல்லது ஏதேனும் சந்தேகங்களை கேட்கலாம்.")
+      : (hasRecords 
+          ? `Hello! I am your Aarogya health copilot. I have context on your ${records.length} uploaded medical record${records.length > 1 ? 's' : ''}. How can I help you understand your health today?` 
+          : "Hello! I am your Aarogya health copilot. Upload your medical records or ask me any health questions, and I will explain them in everyday simple terms.");
+
+    return [
+      {
+        id: 'm_welcome',
+        sender: 'aarogya',
+        text: welcomeText,
+        timestamp: 'Just now',
+        citations: []
+      }
+    ];
+  });
 
   const [inputText, setInputText] = useState(initialPrompt || '');
   const [isListening, setIsListening] = useState(false);
@@ -154,12 +164,18 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     }
   };
 
-  const suggestionChips = [
-    { label: "Explain latest blood test", query: "Explain my latest blood test in simple language." },
-    { label: "What medicines did Dr. Kumar give?", query: "What medicines were mentioned in my previous prescription?" },
-    { label: "Compare my last two reports", query: "Compare my last two reports and show test trends." },
-    { label: "Can I take Metformin with food?", query: "Can I take Metformin with food and what is the schedule?" }
+  const suggestionChips = records && records.length > 0 ? [
+    { label: "Explain my latest report", query: "Explain my latest report in simple everyday language." },
+    { label: "What medicines am I taking?", query: "What active medications and dosages are mentioned in my uploaded records?" },
+    { label: "Are any lab values abnormal?", query: "Are there any out-of-range lab results in my reports?" },
+    { label: "Summarize my health history", query: "Summarize my medical history and recent clinic visits." }
+  ] : [
+    { label: "How do I scan a prescription?", query: "How do I scan and upload a prescription in Aarogya?" },
+    { label: "What features are available?", query: "What health copilot features are available in Aarogya?" },
+    { label: "How is my data protected?", query: "How is my medical data kept private and secure?" },
+    { label: "Doctor visit checklist", query: "What questions should I prepare for my next doctor visit?" }
   ];
+
 
   return (
     <div className="flex-1 flex flex-col justify-between bg-[#f8faf9] h-full min-h-[680px]">

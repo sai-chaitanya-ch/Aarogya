@@ -70,7 +70,7 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
         {/* User Card */}
         <div className="mt-3 p-4 bg-white rounded-3xl border border-slate-100 shadow-xs flex items-center gap-3.5">
           <div className="w-14 h-14 rounded-2xl bg-teal-700 text-white font-extrabold text-lg flex items-center justify-center shadow-md">
-            {user.name.slice(0, 2).toUpperCase()}
+            {user.name ? user.name.slice(0, 2).toUpperCase() : 'ME'}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
@@ -79,13 +79,14 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
+                  placeholder="Enter full name"
                   className="font-extrabold text-sm text-slate-900 border rounded px-1.5 py-0.5 outline-none"
                 />
               ) : (
-                <h3 className="font-extrabold text-sm text-slate-900">{user.name}</h3>
+                <h3 className="font-extrabold text-sm text-slate-900">{user.name || 'Patient'}</h3>
               )}
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-800 border border-teal-200/50">
-                {user.age} yrs · {user.gender}
+                {user.age ? `${user.age} yrs · ` : ''}{user.gender || 'Patient'}
               </span>
             </div>
 
@@ -97,12 +98,13 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
                     type="text"
                     value={bloodGroup}
                     onChange={e => setBloodGroup(e.target.value)}
+                    placeholder="e.g. O+"
                     className="w-16 font-bold text-rose-600 bg-rose-50 px-1 py-0.5 rounded border border-rose-200 outline-none"
                   />
                 </div>
               ) : (
                 <span className="font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded">
-                  Blood Group: {user.bloodGroup}
+                  Blood Group: {user.bloodGroup || 'Not specified'}
                 </span>
               )}
             </div>
@@ -124,7 +126,7 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
                 className="font-bold text-slate-800 border rounded px-1 py-0.5"
               />
             ) : (
-              <span className="font-bold text-slate-800">{user.phone}</span>
+              <span className="font-bold text-slate-800">{user.phone || 'Not provided'}</span>
             )}
           </div>
 
@@ -138,10 +140,11 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
                 type="text"
                 value={location}
                 onChange={e => setLocation(e.target.value)}
+                placeholder="City, State"
                 className="font-bold text-slate-800 border rounded px-1 py-0.5"
               />
             ) : (
-              <span className="font-bold text-slate-800">{user.location}</span>
+              <span className="font-bold text-slate-800">{user.location || 'Not provided'}</span>
             )}
           </div>
 
@@ -150,7 +153,7 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
               <Heart className="w-3.5 h-3.5 text-rose-500" />
               <span>Emergency Contact</span>
             </div>
-            <span className="font-bold text-slate-800">{user.emergencyContact}</span>
+            <span className="font-bold text-slate-800">{user.emergencyContact || 'Not provided'}</span>
           </div>
         </div>
 
@@ -165,22 +168,30 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
             <div>
               <span className="text-[11px] text-slate-400 font-medium">Allergies:</span>
               <div className="flex flex-wrap gap-1 mt-0.5">
-                {user.allergies.map((a, i) => (
-                  <span key={i} className="px-2 py-0.5 rounded-md bg-red-50 text-red-700 text-[11px] font-bold border border-red-200">
-                    {a}
-                  </span>
-                ))}
+                {user.allergies && user.allergies.length > 0 ? (
+                  user.allergies.map((a, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-md bg-red-50 text-red-700 text-[11px] font-bold border border-red-200">
+                      {a}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[11px] text-slate-400">None reported</span>
+                )}
               </div>
             </div>
 
             <div className="pt-1">
               <span className="text-[11px] text-slate-400 font-medium">Existing Conditions:</span>
               <div className="flex flex-wrap gap-1 mt-0.5">
-                {user.conditions.map((c, i) => (
-                  <span key={i} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-bold">
-                    {c}
-                  </span>
-                ))}
+                {user.conditions && user.conditions.length > 0 ? (
+                  user.conditions.map((c, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-bold">
+                      {c}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[11px] text-slate-400">None reported</span>
+                )}
               </div>
             </div>
           </div>

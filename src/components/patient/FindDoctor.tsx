@@ -19,7 +19,11 @@ export const FindDoctor: React.FC<FindDoctorProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSpecialty, setSelectedSpecialty] = useState('All');
   const [bookingDoctor, setBookingDoctor] = useState<Doctor | null>(null);
-  const [bookingDate, setBookingDate] = useState('Tomorrow, 10 Oct 2026');
+  const [bookingDate, setBookingDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return `Tomorrow, ${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  });
   const [bookingTime, setBookingTime] = useState('11:00 AM');
   const [bookingType, setBookingType] = useState<'In-person' | 'Teleconsultation'>('In-person');
 
