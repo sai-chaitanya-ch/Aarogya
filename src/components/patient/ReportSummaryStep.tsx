@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { 
   ArrowLeft, MoreVertical, Sparkles, AlertTriangle, 
-  CheckCircle2, TrendingUp, Volume2, MessageSquare, Send, Calendar 
+  CheckCircle2, Volume2, Send, Calendar 
 } from 'lucide-react';
 import { MedicalRecord, Language } from '../../types';
 import { translations } from '../../data/translations';
 
 interface ReportSummaryStepProps {
-  record: MedicalRecord;
+  record?: MedicalRecord | null;
   language: Language;
   onBack: () => void;
   onAskFollowUp: (question: string) => void;
@@ -24,7 +24,28 @@ export const ReportSummaryStep: React.FC<ReportSummaryStepProps> = ({
   const [followUpText, setFollowUpText] = useState('');
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  const localizedSummary = record.aiSummary[language] || record.aiSummary.en;
+  if (!record) {
+    return (
+      <div className="flex-1 p-6 bg-[#f8faf9] flex flex-col items-center justify-center text-center min-h-[640px]">
+        <div className="w-16 h-16 rounded-3xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-700 mb-4 shadow-sm">
+          <Calendar className="w-8 h-8" />
+        </div>
+        <h3 className="font-extrabold text-base text-slate-900">No Document Available</h3>
+        <p className="text-xs text-slate-500 mt-1 max-w-xs leading-relaxed">
+          Upload or scan a prescription or medical lab report to generate an AI clinical summary and extracted insights.
+        </p>
+        <button
+          onClick={onBack}
+          className="mt-6 px-5 py-2.5 bg-teal-700 text-white rounded-2xl text-xs font-bold hover:bg-teal-800 shadow-sm"
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  const localizedSummary = record.aiSummary?.[language] || record.aiSummary?.en || 'Record processed.';
+
 
   const handleSpeakSummary = () => {
     if ('speechSynthesis' in window) {
@@ -236,43 +257,48 @@ export const ReportSummaryStep: React.FC<ReportSummaryStepProps> = ({
         {/* Tab 3: Trends Graph */}
         {activeTab === 'trends' && (
           <div className="mt-3 bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-800">Hemoglobin Trend Over Time</span>
-              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                Improving (+0.6 g/dL)
-              </span>
-            </div>
+            {record.labValues && record.labValues.length > 0 ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800">Biomarker Values</span>
+                  <span className="text-[10px] font-semibold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-full">
+                    {record.labValues.length} Test{record.labValues.length > 1 ? 's' : ''} Logged
+                  </span>
+                </div>
 
-            {/* Custom SVG Trend Chart */}
-            <div className="h-44 w-full bg-slate-50/80 rounded-xl p-2 border border-slate-100 flex flex-col justify-between">
-              <div className="flex justify-between text-[10px] text-slate-400 px-2">
-                <span>Target: 12.0 - 15.5 g/dL</span>
-                <span className="text-teal-700 font-bold">Latest: 10.8 g/dL</span>
+                <div className="space-y-2">
+                  {record.labValues.map((lv, idx) => (
+                    <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-xs text-slate-900">{lv.testName}</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Ref: {lv.referenceRange || 'Standard Range'}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-xs text-teal-900">{lv.value}</div>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                          lv.status === 'low' ? 'bg-red-100 text-red-700' :
+                          lv.status === 'high' ? 'bg-amber-100 text-amber-700' :
+                          'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {lv.status.toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-relaxed bg-teal-50/50 p-2.5 rounded-xl border border-teal-100/60">
+                  💡 <strong>Clinical Insight:</strong> Test results from {record.visitDate}. Upload follow-up reports to track progress over time.
+                </p>
+              </>
+            ) : (
+              <div className="py-8 text-center space-y-2">
+                <span className="text-xs font-bold text-slate-700 block">No Lab Values in Document</span>
+                <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                  This document contains prescription or clinical notes. Upload a pathology or blood test report to visualize biomarker trends.
+                </p>
               </div>
-
-              {/* Chart Bars */}
-              <div className="flex items-end justify-around h-28 pt-4 px-2">
-                <div className="flex flex-col items-center gap-1.5">
-                  <span className="text-[10px] font-bold text-slate-600">10.2</span>
-                  <div className="w-10 bg-teal-300 rounded-t-lg transition-all" style={{ height: '60px' }} />
-                  <span className="text-[9px] text-slate-400">12 Jan</span>
-                </div>
-                <div className="flex flex-col items-center gap-1.5">
-                  <span className="text-[10px] font-bold text-slate-600">10.5</span>
-                  <div className="w-10 bg-teal-500 rounded-t-lg transition-all" style={{ height: '75px' }} />
-                  <span className="text-[9px] text-slate-400">10 May</span>
-                </div>
-                <div className="flex flex-col items-center gap-1.5">
-                  <span className="text-[10px] font-bold text-teal-800">10.8</span>
-                  <div className="w-10 bg-teal-700 rounded-t-lg ring-2 ring-teal-400/50 shadow-sm transition-all" style={{ height: '90px' }} />
-                  <span className="text-[9px] font-bold text-teal-900">14 Sep (Today)</span>
-                </div>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-slate-500 leading-relaxed bg-teal-50/50 p-2.5 rounded-xl border border-teal-100/60">
-              💡 <strong>Trend Insight:</strong> Your hemoglobin has steadily risen from 10.2 to 10.8 g/dL over 8 months. Continue iron-rich nutrition and follow up with Dr. S. Kumar.
-            </p>
+            )}
           </div>
         )}
       </div>

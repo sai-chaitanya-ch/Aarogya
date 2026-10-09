@@ -14,19 +14,25 @@ export const LiveCameraScanner: React.FC<LiveCameraScannerProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [_stream, setStream] = useState<MediaStream | null>(null);
   const [cameraActive, setCameraActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [capturedUrl, setCapturedUrl] = useState<string | null>(null);
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
 
-  const startCamera = async () => {
+  const stopCurrentStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+  };
+
+  const startCamera = React.useCallback(async () => {
     try {
       setCameraError(null);
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
+      stopCurrentStream();
 
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -37,6 +43,7 @@ export const LiveCameraScanner: React.FC<LiveCameraScannerProps> = ({
         audio: false
       });
 
+      streamRef.current = mediaStream;
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
@@ -50,16 +57,14 @@ export const LiveCameraScanner: React.FC<LiveCameraScannerProps> = ({
         : 'Unable to start camera. You can upload an image or PDF instead.');
       setCameraActive(false);
     }
-  };
+  }, [facingMode]);
 
   useEffect(() => {
     startCamera();
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
+      stopCurrentStream();
     };
-  }, [facingMode]);
+  }, [startCamera]);
 
   const handleCaptureSnapshot = () => {
     if (!videoRef.current || !canvasRef.current) return;

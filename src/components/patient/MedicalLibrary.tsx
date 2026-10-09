@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
-  ArrowLeft, Search, Filter, FileText, Download, Share2, 
-  Trash2, ChevronRight, Calendar, Plus, ExternalLink, Sparkles 
+  ArrowLeft, Search, FileText, 
+  Trash2, ChevronRight, Plus, Sparkles 
 } from 'lucide-react';
 import { MedicalRecord, Language, DocumentType } from '../../types';
 
@@ -24,7 +24,6 @@ export const MedicalLibrary: React.FC<MedicalLibraryProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'All' | DocumentType>('All');
-  const [inspectRecord, setInspectRecord] = useState<MedicalRecord | null>(null);
 
   const filterTabs: ('All' | DocumentType)[] = [
     'All',
@@ -59,21 +58,21 @@ export const MedicalLibrary: React.FC<MedicalLibraryProps> = ({
           </div>
           <button
             onClick={onScanNew}
-            className="flex items-center gap-1 text-xs font-bold text-teal-800 bg-teal-50 border border-teal-200/60 px-2.5 py-1 rounded-lg hover:bg-teal-100"
+            className="flex items-center gap-1 text-xs font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 px-2.5 py-1 rounded-lg border border-teal-200/50"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add</span>
+            <span>Add New</span>
           </button>
         </div>
 
-        {/* Search Bar */}
+        {/* Search */}
         <div className="relative mt-3">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search reports, medicines, doctors..."
+            placeholder="Search records by doctor, hospital or test..."
             className="w-full text-xs pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl focus:border-teal-700 outline-none shadow-2xs"
           />
         </div>
@@ -124,7 +123,23 @@ export const MedicalLibrary: React.FC<MedicalLibraryProps> = ({
                     </div>
                   </div>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                <div className="flex items-center gap-1">
+                  {onDeleteRecord && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Delete ${record.title}?`)) {
+                          onDeleteRecord(record.id);
+                        }
+                      }}
+                      className="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Delete record"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                </div>
               </div>
 
               {/* AI Summary snippet */}

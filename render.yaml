@@ -8,8 +8,16 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: FRONTEND_ORIGIN
+        value: https://aarogya-for-all.netlify.app
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODELS
+        value: qwen/qwen3.8-27b,openai/gpt-oss-120b
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
