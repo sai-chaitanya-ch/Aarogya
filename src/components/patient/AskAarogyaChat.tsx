@@ -24,24 +24,27 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
   onBack,
   onViewRecord
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'm_welcome',
-      sender: 'aarogya',
-      text: language === 'te' 
-        ? "నమస్కారం చైతన్య! నేను మీ ఆరోగ్య అసిస్టెంట్‌ని. మీ 12 రికార్డులు, మందులు మరియు రక్త పరీక్షల వివరాలు నా వద్ద ఉన్నాయి. మీరు ఏదైనా రిపోర్టు గురించి అడగవచ్చు."
-        : language === 'hi'
-        ? "नमस्ते चैतन्य! मैं आपका आरोग्य सहायक हूँ। आपके 12 मेडिकल रिकॉर्ड्स और दवाओं की जानकारी मेरे पास है। आप अपनी रिपोर्ट या दवाओं के बारे में पूछ सकते हैं।"
-        : language === 'ta'
-        ? "வணக்கம் சைதன்யா! உங்கள் மருத்துவ பதிவுகள் மற்றும் அறிக்கைகள் பற்றி நீங்கள் என்னிடம் கேட்கலாம்."
-        : "Hello Chaitanya! I am your Aarogya health copilot. I have context on your 12 medical records, 3 active medicines, and lab reports. How can I help you understand your health today?",
-      timestamp: 'Just now',
-      citations: [
-        { documentTitle: 'CBC Report (14 Sep 2024)', documentDate: '14 Sep 2024', recordId: 'rec_cbc_01' },
-        { documentTitle: 'Dr. Kumar Prescription', documentDate: '14 Sep 2024', recordId: 'rec_rx_01' }
-      ]
-    }
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const greetingText = records.length > 0
+      ? (language === 'te' ? `నమస్కారం! నేను మీ ఆరోగ్య అసిస్టెంట్‌ని. మీ వద్ద ${records.length} రికార్డులు ఉన్నాయి. మీరు వాటి గురించి నన్ను అడగవచ్చు.` :
+         language === 'hi' ? `नमस्ते! मैं आपका आरोग्य सहायक हूँ। आपके पास ${records.length} मेडिकल रिकॉर्ड हैं। आप अपनी रिपोर्ट या दवाओं के बारे में पूछ सकते हैं।` :
+         language === 'ta' ? `வணக்கம்! உங்கள் கணக்கில் ${records.length} மருத்துவ பதிவுகள் உள்ளன. உங்கள் அறிக்கைகள் பற்றி என்னிடம் கேட்கலாம்.` :
+         `Hello! I am your Aarogya health copilot. You have ${records.length} authorized health record(s). How can I help you understand your health today?`)
+      : (language === 'te' ? "నమస్కారం! నేను మీ ఆరోగ్య అసిస్టెంట్‌ని. మీ వద్ద ఇంకా ఎటువంటి రికార్డులు లేవు. పత్రాన్ని స్కాన్ చేసి వివరాలు తెలుసుకోవచ్చు." :
+         language === 'hi' ? "नमस्ते! मैं आपका आरोग्य सहायक हूँ। आपके पास अभी कोई रिपोर्ट नहीं है। आप पर्चा अपलोड कर सकते हैं या कोई प्रश्न पूछ सकते हैं।" :
+         language === 'ta' ? "வணக்கம்! உங்கள் கணக்கில் இன்னும் மருத்துவ பதிவுகள் இல்லை. ஒரு அறிக்கையை பதிவேற்றவும்." :
+         "Hello! I am your Aarogya health copilot. You have no uploaded medical records yet. Scan a prescription or lab report to get personalized explanations.");
+
+    return [
+      {
+        id: 'm_welcome',
+        sender: 'aarogya',
+        text: greetingText,
+        timestamp: 'Just now',
+        citations: []
+      }
+    ];
+  });
 
   const [inputText, setInputText] = useState(initialPrompt || '');
   const [isListening, setIsListening] = useState(false);
@@ -153,12 +156,17 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     }
   };
 
-  const suggestionChips = [
-    { label: "Explain latest blood test", query: "Explain my latest blood test in simple language." },
-    { label: "What medicines did Dr. Kumar give?", query: "What medicines were mentioned in my previous prescription?" },
-    { label: "Compare my last two reports", query: "Compare my last two reports and show test trends." },
-    { label: "Can I take Metformin with food?", query: "Can I take Metformin with food and what is the schedule?" }
-  ];
+  const suggestionChips = records.length > 0
+    ? [
+        { label: "Summarize records", query: "Can you summarize my uploaded medical records in simple language?" },
+        { label: "Check medication schedule", query: "What are the timings and instructions for my active medications?" },
+        { label: "Explain latest report", query: "What are the key findings in my latest uploaded report?" }
+      ]
+    : [
+        { label: "How to upload a report?", query: "How do I upload or scan a prescription in Aarogya?" },
+        { label: "Emergency guidance", query: "What should I do in a medical emergency?" },
+        { label: "What can Aarogya do?", query: "How can Aarogya help me manage my health records?" }
+      ];
 
   return (
     <div className="flex-1 flex flex-col justify-between bg-[#f8faf9] h-full min-h-[680px]">

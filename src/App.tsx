@@ -7,6 +7,7 @@ import { Header } from './components/common/Header';
 import { PhoneFrame } from './components/common/PhoneFrame';
 import { BottomNav } from './components/common/BottomNav';
 import { Toast } from './components/common/Toast';
+import { AarogyaLogo } from './components/common/AarogyaLogo';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { HealthDataProvider, useHealthData } from './context/HealthDataContext';
 import { AuthModal } from './components/auth/AuthModal';
@@ -28,7 +29,7 @@ import { PatientProfileView } from './components/patient/PatientProfileView';
 import { DoctorPortal } from './components/doctor/DoctorPortal';
 
 function AarogyaAppContent() {
-  const { user, role, setRole, updateUserProfile } = useAuth();
+  const { user, role, setRole, updateUserProfile, isAuthenticated, isLoading, signOut } = useAuth();
   const { 
     records, reminders, appointments, 
     addRecord, deleteRecord, toggleReminderStatus, 
@@ -44,7 +45,7 @@ function AarogyaAppContent() {
   const [onboardingStep, setOnboardingStep] = useState<1 | 2 | null>(null);
 
   // Selected Record for Summary Inspection
-  const [activeRecordForSummary, setActiveRecordForSummary] = useState<MedicalRecord>(records[0]);
+  const [activeRecordForSummary, setActiveRecordForSummary] = useState<MedicalRecord | null>(null);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string>('');
 
   // Modals state
@@ -53,8 +54,8 @@ function AarogyaAppContent() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Handle saving new scanned record
-  const handleSaveScannedRecord = async (newRec: MedicalRecord) => {
-    await addRecord(newRec);
+  const handleSaveScannedRecord = async (newRec: MedicalRecord, fileBlob?: File | Blob) => {
+    await addRecord(newRec, fileBlob);
   };
 
   // Switch language
@@ -65,18 +66,18 @@ function AarogyaAppContent() {
 
   // Determine current active screen title for PhoneFrame top bar
   const getScreenTitle = () => {
-    if (role === 'doctor') return 'Doctor Portal (Dr. S. Kumar)';
-    if (onboardingStep === 1) return 'Step 01: Language Selection';
-    if (onboardingStep === 2) return 'Step 02: Health Profile Setup';
-    if (patientView === 'home') return 'Screen 03: Patient Home Dashboard';
-    if (patientView === 'scan') return 'Screen 04: Scan & Review (OCR)';
-    if (patientView === 'summary') return 'Screen 05: Report Summary & Trends';
-    if (patientView === 'chat') return 'Ask Aarogya: AI Copilot & Voice';
-    if (patientView === 'library') return 'Medical Library (Records)';
-    if (patientView === 'reminders') return 'Medicines & Adherence Reminders';
-    if (patientView === 'appointments') return 'Appointments & Visits';
+    if (role === 'doctor') return `Doctor Portal (${user.name || 'Clinician'})`;
+    if (onboardingStep === 1) return 'Language Selection';
+    if (onboardingStep === 2) return 'Health Profile Setup';
+    if (patientView === 'home') return 'Health Dashboard';
+    if (patientView === 'scan') return 'Scan & Review Report';
+    if (patientView === 'summary') return 'Report Summary';
+    if (patientView === 'chat') return 'Ask Aarogya: AI Copilot';
+    if (patientView === 'library') return 'Medical Document Library';
+    if (patientView === 'reminders') return 'Medication Schedule';
+    if (patientView === 'appointments') return 'Appointments & Consultations';
     if (patientView === 'doctors') return 'Find Nearby Doctors';
-    if (patientView === 'trends') return 'Health Summary & Lab Trends';
+    if (patientView === 'trends') return 'Health Summary & Biomarkers';
     if (patientView === 'profile') return 'Health Profile & Identity';
     return 'Aarogya Copilot';
   };
@@ -97,12 +98,34 @@ function AarogyaAppContent() {
     return 'home';
   };
 
+  // 1. Loading state while verifying Supabase session
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#f8faf9] flex flex-col items-center justify-center p-6 text-center">
+        <AarogyaLogo size="lg" showSubtitle={true} />
+        <div className="mt-6 flex items-center gap-2 text-teal-800 font-bold text-xs animate-pulse">
+          <span>Verifying encrypted health session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Strict Authentication Wall: If unauthenticated, render AuthModal exclusively
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-900/30 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+        <AuthModal isOpen={true} canClose={false} />
+      </div>
+    );
+  }
+
+  // 3. Authenticated Application Experience
   return (
     <div className="min-h-screen bg-slate-100/90 text-slate-800 flex flex-col font-sans">
       {/* Real-time Notification Toast */}
       <Toast message={notificationToast} onClose={clearNotificationToast} />
 
-      {/* Top Universal App Header */}
+      {/* Top Universal App Header with Real Logout */}
       <Header
         currentRole={role}
         onRoleChange={r => setRole(r)}
@@ -111,6 +134,7 @@ function AarogyaAppContent() {
         user={user}
         reminders={reminders}
         appointments={appointments}
+        isAuthenticated={isAuthenticated}
         onOpenProfile={() => {
           setRole('patient');
           setPatientView('profile');
@@ -119,70 +143,14 @@ function AarogyaAppContent() {
         onOpenEmergencyCard={() => setIsEmergencyCardOpen(true)}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onExportSummary={() => exportClinicalSummary(user, records, reminders)}
+        onSignOut={signOut}
       />
-
-      {/* Quick Demo Navigation Strip */}
-      <div className="bg-emerald-900 text-teal-100 text-[11px] px-3 py-1 flex items-center justify-between overflow-x-auto shadow-inner border-b border-teal-800">
-        <div className="flex items-center gap-1.5 font-semibold flex-shrink-0">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-white">Quick Flow Jumper:</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button 
-            onClick={() => { setRole('patient'); setOnboardingStep(1); }}
-            className={`px-2 py-0.5 rounded font-bold transition-colors ${onboardingStep === 1 ? 'bg-white text-teal-900' : 'hover:bg-emerald-800'}`}
-          >
-            01 Language
-          </button>
-          <button 
-            onClick={() => { setRole('patient'); setOnboardingStep(2); }}
-            className={`px-2 py-0.5 rounded font-bold transition-colors ${onboardingStep === 2 ? 'bg-white text-teal-900' : 'hover:bg-emerald-800'}`}
-          >
-            02 Profile
-          </button>
-          <button 
-            onClick={() => { setRole('patient'); setOnboardingStep(null); setPatientView('home'); }}
-            className={`px-2 py-0.5 rounded font-bold transition-colors ${patientView === 'home' && !onboardingStep && role === 'patient' ? 'bg-white text-teal-900' : 'hover:bg-emerald-800'}`}
-          >
-            03 Home
-          </button>
-          <button 
-            onClick={() => { setRole('patient'); setOnboardingStep(null); setPatientView('scan'); }}
-            className={`px-2 py-0.5 rounded font-bold transition-colors ${patientView === 'scan' ? 'bg-white text-teal-900' : 'hover:bg-emerald-800'}`}
-          >
-            04 Scan & Review
-          </button>
-          <button 
-            onClick={() => { 
-              setRole('patient'); 
-              setOnboardingStep(null); 
-              if (records.length > 0) setActiveRecordForSummary(records[0]); 
-              setPatientView('summary'); 
-            }}
-            className={`px-2 py-0.5 rounded font-bold transition-colors ${patientView === 'summary' ? 'bg-white text-teal-900' : 'hover:bg-emerald-800'}`}
-          >
-            05 Understand
-          </button>
-          <button 
-            onClick={() => { setRole('patient'); setOnboardingStep(null); setPatientView('chat'); }}
-            className={`px-2 py-0.5 rounded font-bold transition-colors ${patientView === 'chat' ? 'bg-white text-teal-900' : 'hover:bg-emerald-800'}`}
-          >
-            AI Chat
-          </button>
-          <button 
-            onClick={() => { setRole('doctor'); setOnboardingStep(null); }}
-            className={`px-2 py-0.5 rounded font-bold transition-colors ${role === 'doctor' ? 'bg-amber-400 text-slate-900' : 'hover:bg-emerald-800 text-amber-200'}`}
-          >
-            Doctor Portal (12 Screens)
-          </button>
-        </div>
-      </div>
 
       {/* Main View Container */}
       <main className="flex-1 flex flex-col items-center">
         <PhoneFrame activeScreenTitle={getScreenTitle()}>
           {role === 'doctor' ? (
-            /* DOCTOR PORTAL WORKFLOW (All 12 Screens) */
+            /* DOCTOR PORTAL WORKFLOW */
             <DoctorPortal
               onSwitchToPatient={() => {
                 setRole('patient');
@@ -216,7 +184,7 @@ function AarogyaAppContent() {
                   }}
                 />
               ) : patientView === 'home' ? (
-                /* Step 03: Patient Home Dashboard */
+                /* Patient Home Dashboard */
                 <PatientHome
                   user={user}
                   language={language}
@@ -231,7 +199,7 @@ function AarogyaAppContent() {
                   onOpenProfile={() => setPatientView('profile')}
                 />
               ) : patientView === 'scan' ? (
-                /* Step 04: Scan & Review OCR Pipeline */
+                /* Scan & Review OCR Pipeline */
                 <ScanReviewStep
                   language={language}
                   onSaveRecord={handleSaveScannedRecord}
@@ -242,16 +210,28 @@ function AarogyaAppContent() {
                   }}
                 />
               ) : patientView === 'summary' ? (
-                /* Step 05: Understand / Report Summary */
-                <ReportSummaryStep
-                  record={activeRecordForSummary || records[0]}
-                  language={language}
-                  onBack={() => setPatientView('home')}
-                  onAskFollowUp={(question) => {
-                    setChatInitialPrompt(question);
-                    setPatientView('chat');
-                  }}
-                />
+                /* Understand / Report Summary */
+                (activeRecordForSummary || (records.length > 0 ? records[0] : null)) ? (
+                  <ReportSummaryStep
+                    record={activeRecordForSummary || records[0]}
+                    language={language}
+                    onBack={() => setPatientView('home')}
+                    onAskFollowUp={(question) => {
+                      setChatInitialPrompt(question);
+                      setPatientView('chat');
+                    }}
+                  />
+                ) : (
+                  <div className="flex-1 p-6 flex flex-col items-center justify-center text-center">
+                    <p className="text-xs text-slate-500 mb-3 font-medium">No record selected to summarize.</p>
+                    <button 
+                      onClick={() => setPatientView('library')} 
+                      className="px-4 py-2 bg-teal-700 text-white rounded-xl text-xs font-bold hover:bg-teal-800 transition-colors"
+                    >
+                      Open Medical Library
+                    </button>
+                  </div>
+                )
               ) : patientView === 'chat' ? (
                 /* Ask Aarogya AI Copilot Chat & Voice */
                 <AskAarogyaChat
@@ -307,12 +287,12 @@ function AarogyaAppContent() {
                   onBookDoctor={(doc: Doctor) => {
                     const newApt: Appointment = {
                       id: `apt_${Date.now()}`,
-                      patientName: user.name,
+                      patientName: user.name || 'Patient',
                       patientId: user.id,
                       doctorName: doc.name,
                       doctorSpecialty: doc.specialty,
                       hospitalClinic: doc.clinicName,
-                      date: 'Tomorrow, 10 Oct 2026',
+                      date: new Date().toLocaleDateString('en-GB'),
                       time: '11:00 AM',
                       type: 'In-person',
                       status: 'upcoming'
@@ -332,7 +312,7 @@ function AarogyaAppContent() {
                   }}
                 />
               ) : patientView === 'profile' ? (
-                /* Patient Profile & Settings */
+                /* Patient Profile & Settings with Working Sign Out */
                 <PatientProfileView
                   user={user}
                   language={language}
@@ -343,6 +323,7 @@ function AarogyaAppContent() {
                   onOpenEmergencyCard={() => setIsEmergencyCardOpen(true)}
                   onExportSummary={() => exportClinicalSummary(user, records, reminders)}
                   onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                  onSignOut={signOut}
                 />
               ) : null}
 
@@ -351,7 +332,7 @@ function AarogyaAppContent() {
                 <BottomNav
                   activeTab={getActiveBottomTab()}
                   onChangeTab={handleBottomNavChange}
-                  language={language}
+                  onScanClick={() => setPatientView('scan')}
                 />
               )}
             </div>
@@ -359,7 +340,7 @@ function AarogyaAppContent() {
         </PhoneFrame>
       </main>
 
-      {/* ABDM Consent & Connection Modal */}
+      {/* ABDM / ABHA Connection Modal */}
       <ABDMConnectionModal
         user={user}
         isOpen={isAbhaModalOpen}
@@ -367,15 +348,14 @@ function AarogyaAppContent() {
         onUpdateUser={updateUserProfile}
       />
 
-      {/* Emergency Card Modal */}
+      {/* Emergency SOS Health Card Modal */}
       <EmergencyCardModal
         user={user}
-        reminders={reminders}
         isOpen={isEmergencyCardOpen}
         onClose={() => setIsEmergencyCardOpen(false)}
       />
 
-      {/* Auth Modal (Login / Sign Up / Demo) */}
+      {/* Manage Account & Sync Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
@@ -384,7 +364,7 @@ function AarogyaAppContent() {
   );
 }
 
-export function App() {
+export default function App() {
   return (
     <AuthProvider>
       <HealthDataProvider>
@@ -393,5 +373,3 @@ export function App() {
     </AuthProvider>
   );
 }
-
-export default App;

@@ -135,11 +135,27 @@ export const MedicalLibrary: React.FC<MedicalLibraryProps> = ({
             </div>
           ))}
 
-          {filteredRecords.length === 0 && (
-            <div className="py-12 text-center text-xs text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
-              No matching records found.
+          {records.length === 0 ? (
+            <div className="py-14 px-4 text-center bg-white rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center mb-2.5">
+                <FileText className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-800">No medical records yet.</h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs">
+                Upload or scan a prescription, diagnostic lab report, or discharge summary to get started.
+              </p>
+              <button
+                onClick={onScanNew}
+                className="mt-4 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold transition-colors shadow-xs"
+              >
+                + Scan or Upload Document
+              </button>
             </div>
-          )}
+          ) : filteredRecords.length === 0 ? (
+            <div className="py-12 text-center text-xs text-slate-400 bg-white rounded-2xl border border-dashed border-slate-200">
+              No matching records found for "{searchQuery}".
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

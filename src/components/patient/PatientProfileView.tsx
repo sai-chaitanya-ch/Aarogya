@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   ArrowLeft, User, ShieldCheck, Heart, AlertCircle, 
-  MapPin, Phone, Landmark, CheckCircle2, Edit2, Globe 
+  MapPin, Phone, Landmark, CheckCircle2, Edit2, Globe, LogOut 
 } from 'lucide-react';
 import { UserProfile, Language } from '../../types';
 
@@ -15,6 +15,7 @@ interface PatientProfileViewProps {
   onOpenEmergencyCard?: () => void;
   onExportSummary?: () => void;
   onOpenAuthModal?: () => void;
+  onSignOut?: () => void;
 }
 
 export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
@@ -254,6 +255,16 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
               className="w-full py-2.5 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
             >
               <span>Manage Account & Cloud Sync</span>
+            </button>
+          )}
+
+          {onSignOut && (
+            <button
+              onClick={onSignOut}
+              className="w-full py-2.5 px-3 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-600" />
+              <span>Sign Out from Aarogya</span>
             </button>
           )}
         </div>

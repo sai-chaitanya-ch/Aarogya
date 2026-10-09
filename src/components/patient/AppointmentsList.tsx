@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Appointment, Doctor, Language } from '../../types';
 import { nearbyDoctors } from '../../data/mockData';
+import { useAuth } from '../../context/AuthContext';
 
 interface AppointmentsListProps {
   appointments: Appointment[];
@@ -21,12 +22,13 @@ export const AppointmentsList: React.FC<AppointmentsListProps> = ({
   onBookNew,
   onFindDoctor
 }) => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [showBookModal, setShowBookModal] = useState(false);
 
   // New appointment form state
   const [selectedDoctorId, setSelectedDoctorId] = useState(nearbyDoctors[0].id);
-  const [aptDate, setAptDate] = useState('28 Sep 2024');
+  const [aptDate, setAptDate] = useState(new Date().toLocaleDateString('en-GB'));
   const [aptTime, setAptTime] = useState('11:00 AM');
   const [aptType, setAptType] = useState<'In-person' | 'Teleconsultation'>('In-person');
   const [aptNotes, setAptNotes] = useState('General health checkup');
@@ -40,8 +42,8 @@ export const AppointmentsList: React.FC<AppointmentsListProps> = ({
 
     const newApt: Appointment = {
       id: `apt_${Date.now()}`,
-      patientName: 'Chaitanya',
-      patientId: 'usr_chaitanya_01',
+      patientName: user.name || 'Patient',
+      patientId: user.id,
       doctorName: doc.name,
       doctorSpecialty: doc.specialty,
       hospitalClinic: doc.clinicName,
@@ -146,8 +148,10 @@ export const AppointmentsList: React.FC<AppointmentsListProps> = ({
           )}
 
           {activeTab === 'upcoming' && upcomingList.length === 0 && (
-            <div className="py-10 text-center text-xs text-slate-400">
-              No upcoming appointments.
+            <div className="py-12 px-4 bg-white rounded-2xl border border-dashed border-slate-200 text-center flex flex-col items-center justify-center">
+              <Calendar className="w-8 h-8 text-teal-700/60 mb-2" />
+              <h3 className="font-bold text-sm text-slate-800">You have no upcoming appointments.</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Find a doctor nearby or schedule a follow-up visit.</p>
             </div>
           )}
         </div>

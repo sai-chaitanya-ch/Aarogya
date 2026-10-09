@@ -1,19 +1,16 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { useAuth } from './AuthContext';
 import { MedicalRecord, ActiveMedicationReminder, Appointment } from '../types';
-import { 
-  initialMedicalRecords, 
-  initialReminders, 
-  initialAppointments 
-} from '../data/mockData';
 
 interface HealthDataContextType {
   records: MedicalRecord[];
   reminders: ActiveMedicationReminder[];
   appointments: Appointment[];
   isLoading: boolean;
-  addRecord: (record: MedicalRecord) => Promise<void>;
+  dbError: string | null;
+  refetchData: () => Promise<void>;
+  addRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<void>;
   updateRecord: (id: string, updated: Partial<MedicalRecord>) => Promise<void>;
   deleteRecord: (id: string) => Promise<void>;
   toggleReminderStatus: (id: string, newStatus: 'taken' | 'skipped' | 'pending') => Promise<void>;
@@ -25,144 +22,167 @@ interface HealthDataContextType {
 
 const HealthDataContext = createContext<HealthDataContextType | undefined>(undefined);
 
-const STORAGE_RECORDS_KEY = 'aarogya_records';
-const STORAGE_REMINDERS_KEY = 'aarogya_reminders';
-const STORAGE_APPOINTMENTS_KEY = 'aarogya_appointments';
-
 export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isGuestDemo } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [notificationToast, setNotificationToast] = useState<string | null>(null);
 
-  // Records state
-  const [records, setRecords] = useState<MedicalRecord[]>(() => {
-    const saved = localStorage.getItem(STORAGE_RECORDS_KEY);
-    return saved ? JSON.parse(saved) : initialMedicalRecords;
-  });
+  // Pure zero-state defaults for true authenticated security
+  const [records, setRecords] = useState<MedicalRecord[]>([]);
+  const [reminders, setReminders] = useState<ActiveMedicationReminder[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
 
-  // Reminders state
-  const [reminders, setReminders] = useState<ActiveMedicationReminder[]>(() => {
-    const saved = localStorage.getItem(STORAGE_REMINDERS_KEY);
-    return saved ? JSON.parse(saved) : initialReminders;
-  });
+  const loadSupabaseData = useCallback(async () => {
+    const client = supabase;
+    if (!client || !isAuthenticated || !user.id) {
+      setRecords([]);
+      setReminders([]);
+      setAppointments([]);
+      return;
+    }
 
-  // Appointments state
-  const [appointments, setAppointments] = useState<Appointment[]>(() => {
-    const saved = localStorage.getItem(STORAGE_APPOINTMENTS_KEY);
-    return saved ? JSON.parse(saved) : initialAppointments;
-  });
+    setIsLoading(true);
+    setDbError(null);
+    try {
+      // 1. Fetch patient's medical documents (strictly authorized to user.id)
+      const { data: docData, error: docError } = await client
+        .from('medical_documents')
+        .select('*')
+        .eq('patient_id', user.id)
+        .order('created_at', { ascending: false });
 
-  // Local storage persistence
-  useEffect(() => {
-    localStorage.setItem(STORAGE_RECORDS_KEY, JSON.stringify(records));
-  }, [records]);
+      if (docError) {
+        throw docError;
+      }
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_REMINDERS_KEY, JSON.stringify(reminders));
-  }, [reminders]);
+      // Explicitly set empty array if 0 records returned
+      if (!docData || docData.length === 0) {
+        setRecords([]);
+      } else {
+        // Resolve signed URLs for each private document
+        const mappedDocs: MedicalRecord[] = await Promise.all(
+          docData.map(async (d) => {
+            let signedUrl = '';
+            if (d.storage_path) {
+              const { data: sData } = await client.storage
+                .from('medical-records')
+                .createSignedUrl(d.storage_path, 3600);
+              signedUrl = sData?.signedUrl || '';
+            }
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_APPOINTMENTS_KEY, JSON.stringify(appointments));
-  }, [appointments]);
+            return {
+              id: d.id,
+              title: d.title,
+              documentType: d.document_type,
+              patientName: user.name || 'Patient',
+              visitDate: d.visit_date,
+              doctorName: d.extracted_fields?.doctor_name || 'Healthcare Professional',
+              facilityName: d.facility_name || 'Clinic',
+              status: d.status,
+              originalFileUrl: signedUrl,
+              originalFileName: d.file_name,
+              aiSummary: d.ai_summary || { en: 'Record verified.' },
+              keyFindings: d.review_alerts || [],
+              medicines: d.extracted_fields?.medicines || [],
+              labValues: d.extracted_fields?.lab_values || [],
+              createdAt: d.created_at
+            };
+          })
+        );
+        setRecords(mappedDocs);
+      }
 
-  // Load from Supabase PostgreSQL if logged in with Supabase
+      // 2. Fetch medication reminders (strictly authorized to user.id)
+      const { data: remData, error: remError } = await client
+        .from('medication_reminders')
+        .select('*')
+        .eq('patient_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (remError) {
+        throw remError;
+      }
+
+      if (!remData || remData.length === 0) {
+        setReminders([]);
+      } else {
+        const mappedRems: ActiveMedicationReminder[] = remData.map(r => ({
+          id: r.id,
+          medicineName: r.medicine_name,
+          dosage: r.dosage,
+          instructions: r.instructions || '',
+          timeSlot: r.time_slot,
+          slotName: r.slot_name,
+          status: r.status,
+          takenAt: r.taken_at ? new Date(r.taken_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined
+        }));
+        setReminders(mappedRems);
+      }
+
+      // 3. Fetch appointments (strictly authorized to user.id)
+      const { data: aptData, error: aptError } = await client
+        .from('appointments')
+        .select('*')
+        .eq('patient_id', user.id)
+        .order('appointment_date', { ascending: true });
+
+      if (aptError) {
+        throw aptError;
+      }
+
+      if (!aptData || aptData.length === 0) {
+        setAppointments([]);
+      } else {
+        const mappedApts: Appointment[] = aptData.map(a => ({
+          id: a.id,
+          patientName: user.name,
+          patientId: user.id,
+          doctorName: 'Attending Clinician',
+          doctorSpecialty: 'General Medicine',
+          hospitalClinic: 'Care Facility',
+          date: a.appointment_date,
+          time: a.appointment_time,
+          type: a.consultation_type,
+          status: a.status,
+          notes: a.clinical_notes
+        }));
+        setAppointments(mappedApts);
+      }
+    } catch (err: any) {
+      console.warn('Supabase fetch error:', err);
+      setDbError(err?.message || 'Failed to load records from database.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user.id, user.name, isAuthenticated]);
+
+  // Load data and maintain live subscription when authenticated
   useEffect(() => {
     const client = supabase;
-    if (!client || isGuestDemo) return;
-
-    const loadSupabaseData = async () => {
-      setIsLoading(true);
-      try {
-        // Fetch medical documents
-        const { data: docData } = await client
-          .from('medical_documents')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (docData && docData.length > 0) {
-          const mappedDocs: MedicalRecord[] = docData.map(d => ({
-            id: d.id,
-            title: d.title,
-            documentType: d.document_type,
-            patientName: user.name,
-            visitDate: d.visit_date,
-            doctorName: 'Dr. S. Kumar',
-            facilityName: d.facility_name || 'City Care Clinic',
-            status: d.status,
-            aiSummary: d.ai_summary || { en: 'Record verified.' },
-            keyFindings: d.review_alerts || [],
-            medicines: d.extracted_fields?.medicines || [],
-            labValues: d.extracted_fields?.lab_values || [],
-            createdAt: d.created_at
-          }));
-          setRecords(mappedDocs);
-        }
-
-        // Fetch medication reminders
-        const { data: remData } = await client
-          .from('medication_reminders')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (remData && remData.length > 0) {
-          const mappedRems: ActiveMedicationReminder[] = remData.map(r => ({
-            id: r.id,
-            medicineName: r.medicine_name,
-            dosage: r.dosage,
-            instructions: r.instructions || '',
-            timeSlot: r.time_slot,
-            slotName: r.slot_name,
-            status: r.status,
-            takenAt: r.taken_at
-          }));
-          setReminders(mappedRems);
-        }
-
-        // Fetch appointments
-        const { data: aptData } = await client
-          .from('appointments')
-          .select('*')
-          .order('appointment_date', { ascending: true });
-
-        if (aptData && aptData.length > 0) {
-          const mappedApts: Appointment[] = aptData.map(a => ({
-            id: a.id,
-            patientName: user.name,
-            patientId: user.id,
-            doctorName: 'Dr. S. Kumar',
-            doctorSpecialty: 'General Medicine',
-            hospitalClinic: 'City Care Clinic',
-            date: a.appointment_date,
-            time: a.appointment_time,
-            type: a.consultation_type,
-            status: a.status,
-            notes: a.clinical_notes
-          }));
-          setAppointments(mappedApts);
-        }
-      } catch (err) {
-        console.warn('Supabase fetch notice:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    if (!client || !isAuthenticated || !user.id) {
+      setRecords([]);
+      setReminders([]);
+      setAppointments([]);
+      return;
+    }
 
     loadSupabaseData();
 
-    // Set up Realtime Subscription for live updates (e.g. Doctor publishes prescription)
+    // Set up Realtime Subscription for live doctor updates restricted to this patient
     const channel = client
-      .channel('patient-updates')
+      .channel(`patient-${user.id}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'medical_documents' },
+        { event: 'INSERT', schema: 'public', table: 'medical_documents', filter: `patient_id=eq.${user.id}` },
         (payload) => {
-          setNotificationToast(`📋 New medical record added: ${payload.new.title}`);
+          setNotificationToast(`📋 New medical record received: ${payload.new.title}`);
           loadSupabaseData();
         }
       )
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'medication_reminders' },
+        { event: 'INSERT', schema: 'public', table: 'medication_reminders', filter: `patient_id=eq.${user.id}` },
         (payload) => {
           setNotificationToast(`💊 New medicine reminder scheduled: ${payload.new.medicine_name}`);
           loadSupabaseData();
@@ -173,58 +193,123 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return () => {
       client.removeChannel(channel);
     };
-  }, [user.id, isGuestDemo]);
+  }, [user.id, isAuthenticated, loadSupabaseData]);
 
-  const addRecord = async (newRecord: MedicalRecord) => {
-    setRecords(prev => [newRecord, ...prev]);
-
-    // If new record contains medicines, automatically create active reminders
-    if (newRecord.medicines && newRecord.medicines.length > 0) {
-      const newMeds: ActiveMedicationReminder[] = newRecord.medicines.map((m, idx) => ({
-        id: `rem_auto_${Date.now()}_${idx}`,
-        medicineName: m.name,
-        dosage: m.dosage,
-        instructions: m.instructions || m.frequency,
-        timeSlot: m.timing === 'night' ? '09:30 PM' : m.timing === 'afternoon' ? '01:30 PM' : '08:00 AM',
-        slotName: m.timing === 'night' ? 'Night' : m.timing === 'afternoon' ? 'Afternoon' : 'Morning',
-        status: 'pending',
-        prescriptionId: newRecord.id
-      }));
-      setReminders(prev => [...newMeds, ...prev]);
+  const addRecord = async (newRecord: MedicalRecord, fileBlob?: File | Blob) => {
+    const client = supabase;
+    if (!client || !isAuthenticated || !user.id) {
+      // In unauthenticated context, do not store
+      return;
     }
 
-    // Persist to Supabase if logged in
-    if (supabase && !isGuestDemo) {
+    let storagePath = '';
+    let signedUrl = '';
+
+    // Handle real file upload to private Supabase Storage
+    if (fileBlob) {
       try {
-        await supabase.from('medical_documents').insert({
-          id: newRecord.id.startsWith('rec_') ? undefined : newRecord.id,
+        const cleanName = (fileBlob as File).name?.replace(/[^a-zA-Z0-9._-]/g, '_') || `scan_${Date.now()}.jpg`;
+        storagePath = `${user.id}/${Date.now()}_${cleanName}`;
+        const { error: uploadError } = await client.storage
+          .from('medical-records')
+          .upload(storagePath, fileBlob, {
+            contentType: fileBlob.type || 'image/jpeg',
+            upsert: true
+          });
+
+        if (!uploadError) {
+          const { data: signData } = await client.storage
+            .from('medical-records')
+            .createSignedUrl(storagePath, 3600);
+          signedUrl = signData?.signedUrl || '';
+        }
+      } catch (uploadErr) {
+        console.warn('Storage upload notice:', uploadErr);
+      }
+    }
+
+    // Save record to PostgreSQL with strict patient_id
+    try {
+      const { data: inserted, error: insertError } = await client
+        .from('medical_documents')
+        .insert({
           patient_id: user.id,
           title: newRecord.title,
           document_type: newRecord.documentType,
-          visit_date: new Date().toISOString().split('T')[0],
-          facility_name: newRecord.facilityName,
-          storage_path: `${user.id}/${newRecord.title.replace(/\s+/g, '_')}.pdf`,
+          visit_date: newRecord.visitDate || new Date().toISOString().split('T')[0],
+          facility_name: newRecord.facilityName || 'Clinic',
+          storage_path: storagePath || `${user.id}/${Date.now()}_document.pdf`,
           file_name: newRecord.originalFileName || 'document.pdf',
-          status: newRecord.status,
+          status: newRecord.status || 'verified',
           ai_summary: newRecord.aiSummary,
-          extracted_fields: { medicines: newRecord.medicines, lab_values: newRecord.labValues },
+          extracted_fields: {
+            doctor_name: newRecord.doctorName,
+            medicines: newRecord.medicines,
+            lab_values: newRecord.labValues
+          },
           review_alerts: newRecord.keyFindings
-        });
-      } catch (err) {
-        console.warn('Error saving to Supabase:', err);
+        })
+        .select()
+        .single();
+
+      if (!insertError && inserted) {
+        const freshRecord: MedicalRecord = {
+          ...newRecord,
+          id: inserted.id,
+          originalFileUrl: signedUrl || newRecord.originalFileUrl
+        };
+        setRecords(prev => [freshRecord, ...prev]);
+
+        // Automatically create reminders for any extracted medicines
+        if (newRecord.medicines && newRecord.medicines.length > 0) {
+          for (const m of newRecord.medicines) {
+            await addReminder({
+              id: `rem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              medicineName: m.name,
+              dosage: m.dosage,
+              instructions: m.instructions || m.frequency,
+              timeSlot: m.timing === 'night' ? '09:30 PM' : m.timing === 'afternoon' ? '01:30 PM' : '08:00 AM',
+              slotName: m.timing === 'night' ? 'Night' : m.timing === 'afternoon' ? 'Afternoon' : 'Morning',
+              status: 'pending'
+            });
+          }
+        }
       }
+    } catch (err) {
+      console.warn('Failed to insert medical document:', err);
     }
   };
 
   const updateRecord = async (id: string, updated: Partial<MedicalRecord>) => {
     setRecords(prev => prev.map(r => r.id === id ? { ...r, ...updated } : r));
+    const client = supabase;
+    if (client && isAuthenticated && user.id) {
+      try {
+        await client
+          .from('medical_documents')
+          .update({
+            title: updated.title,
+            facility_name: updated.facilityName,
+            status: updated.status
+          })
+          .eq('id', id)
+          .eq('patient_id', user.id);
+      } catch (err) {
+        console.warn('Error updating document in Supabase:', err);
+      }
+    }
   };
 
   const deleteRecord = async (id: string) => {
     setRecords(prev => prev.filter(r => r.id !== id));
-    if (supabase && !isGuestDemo) {
+    const client = supabase;
+    if (client && isAuthenticated && user.id) {
       try {
-        await supabase.from('medical_documents').delete().eq('id', id);
+        await client
+          .from('medical_documents')
+          .delete()
+          .eq('id', id)
+          .eq('patient_id', user.id);
       } catch (err) {
         console.warn('Error deleting from Supabase:', err);
       }
@@ -238,12 +323,17 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       takenAt: newStatus === 'taken' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined 
     } : r));
 
-    if (supabase && !isGuestDemo) {
+    const client = supabase;
+    if (client && isAuthenticated && user.id) {
       try {
-        await supabase.from('medication_reminders').update({
-          status: newStatus,
-          taken_at: newStatus === 'taken' ? new Date().toISOString() : null
-        }).eq('id', id);
+        await client
+          .from('medication_reminders')
+          .update({
+            status: newStatus,
+            taken_at: newStatus === 'taken' ? new Date().toISOString() : null
+          })
+          .eq('id', id)
+          .eq('patient_id', user.id);
       } catch (err) {
         console.warn('Error updating reminder in Supabase:', err);
       }
@@ -252,17 +342,26 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addReminder = async (newRem: ActiveMedicationReminder) => {
     setReminders(prev => [newRem, ...prev]);
-    if (supabase && !isGuestDemo) {
+    const client = supabase;
+    if (client && isAuthenticated && user.id) {
       try {
-        await supabase.from('medication_reminders').insert({
-          patient_id: user.id,
-          medicine_name: newRem.medicineName,
-          dosage: newRem.dosage,
-          instructions: newRem.instructions,
-          time_slot: newRem.timeSlot,
-          slot_name: newRem.slotName,
-          status: 'pending'
-        });
+        const { data } = await client
+          .from('medication_reminders')
+          .insert({
+            patient_id: user.id,
+            medicine_name: newRem.medicineName,
+            dosage: newRem.dosage,
+            instructions: newRem.instructions,
+            time_slot: newRem.timeSlot,
+            slot_name: newRem.slotName,
+            status: 'pending'
+          })
+          .select()
+          .single();
+
+        if (data) {
+          setReminders(prev => prev.map(r => r.id === newRem.id ? { ...r, id: data.id } : r));
+        }
       } catch (err) {
         console.warn('Error saving reminder in Supabase:', err);
       }
@@ -271,16 +370,25 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const bookAppointment = async (newApt: Appointment) => {
     setAppointments(prev => [newApt, ...prev]);
-    if (supabase && !isGuestDemo) {
+    const client = supabase;
+    if (client && isAuthenticated && user.id) {
       try {
-        await supabase.from('appointments').insert({
-          patient_id: user.id,
-          appointment_date: new Date().toISOString().split('T')[0],
-          appointment_time: newApt.time,
-          consultation_type: newApt.type,
-          status: 'upcoming',
-          clinical_notes: newApt.notes
-        });
+        const { data } = await client
+          .from('appointments')
+          .insert({
+            patient_id: user.id,
+            appointment_date: newApt.date || new Date().toISOString().split('T')[0],
+            appointment_time: newApt.time,
+            consultation_type: newApt.type,
+            status: 'upcoming',
+            clinical_notes: newApt.notes
+          })
+          .select()
+          .single();
+
+        if (data) {
+          setAppointments(prev => prev.map(a => a.id === newApt.id ? { ...a, id: data.id } : a));
+        }
       } catch (err) {
         console.warn('Error saving appointment in Supabase:', err);
       }
@@ -296,6 +404,8 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         reminders,
         appointments,
         isLoading,
+        dbError,
+        refetchData: loadSupabaseData,
         addRecord,
         updateRecord,
         deleteRecord,

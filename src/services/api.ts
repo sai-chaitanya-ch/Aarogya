@@ -45,8 +45,18 @@ export async function processDocumentWithBackend(
     formData.append('preset_type', presetType);
     formData.append('patient_name', patientName);
 
+    // Retrieve active Supabase access token if available
+    let authHeaders: Record<string, string> = {};
+    if (supabase) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        authHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      }
+    }
+
     const res = await fetch(`${BACKEND_URL}/api/documents/process`, {
       method: 'POST',
+      headers: authHeaders,
       body: formData,
       signal: AbortSignal.timeout(8000)
     });
@@ -61,11 +71,11 @@ export async function processDocumentWithBackend(
         documentType: d.document_type || 'Prescription',
         patientName: d.patient_name || patientName,
         visitDate: d.visit_date || 'Today',
-        doctorName: d.doctor_name || 'Consulting Clinician',
-        facilityName: d.facility_name || 'Healthcare Facility',
+        doctorName: d.doctor_name || '',
+        facilityName: d.facility_name || '',
         status: 'verified',
         originalFileUrl: result.signed_url,
-        aiSummary: d.ai_summary || { en: 'Processed via FastAPI backend with Gemini API.' },
+        aiSummary: d.ai_summary || { en: 'Processed with medical OCR & AI.' },
         keyFindings: d.review_alerts || [],
         medicines: (d.medicines || []).map((m: any, idx: number) => ({
           id: `m_${idx}`,
@@ -92,15 +102,15 @@ export async function processDocumentWithBackend(
       return { record, signedUrl: result.signed_url };
     }
   } catch (err) {
-    console.info('FastAPI backend not active. Falling back to local OCR & simulation pipeline:', err);
+    console.info('Backend not active or unauthenticated. Using local review pipeline:', err);
   }
 
   // Graceful fallback to client-side pipeline
   const fallback = analyzeDocument(presetType, patientName);
   const fallbackRecord: MedicalRecord = {
     id: `rec_${Date.now()}`,
-    title: presetType === 'prescription' ? 'Prescription - Dr. S. Kumar' : 'Complete Blood Count (CBC)',
-    documentType: presetType === 'prescription' ? 'Prescription' : 'Lab Report',
+    title: presetType === 'cbc' ? 'Lab Report' : 'Prescription',
+    documentType: presetType === 'cbc' ? 'Lab Report' : 'Prescription',
     patientName,
     visitDate: fallback.visitDate,
     doctorName: fallback.doctorName,

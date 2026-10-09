@@ -9,10 +9,11 @@ import { analyzeDocument, DocumentAnalysisResult } from '../../services/aiServic
 import { samplePrescriptionSvg, sampleCBCReportSvg } from '../../data/mockData';
 import { processDocumentWithBackend } from '../../services/api';
 import { LiveCameraScanner } from './LiveCameraScanner';
+import { useAuth } from '../../context/AuthContext';
 
 interface ScanReviewStepProps {
   language: Language;
-  onSaveRecord: (record: MedicalRecord) => void;
+  onSaveRecord: (record: MedicalRecord, fileBlob?: File | Blob) => void;
   onCancel: () => void;
   onViewSummary: (record: MedicalRecord) => void;
 }
@@ -24,11 +25,12 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   onViewSummary
 }) => {
   const t = translations[language];
+  const { user } = useAuth();
 
   // Document selection mode
-  const [selectedPreset, setSelectedPreset] = useState<'prescription' | 'cbc' | 'custom'>('prescription');
+  const [selectedPreset, setSelectedPreset] = useState<'prescription' | 'cbc' | 'custom'>('custom');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(true);
   const [showCropModal, setShowCropModal] = useState(false);
   const [showLiveCamera, setShowLiveCamera] = useState(false);
   const [customCapturedImage, setCustomCapturedImage] = useState<string | null>(null);
@@ -36,17 +38,14 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const [rotation, setRotation] = useState(0);
   const [contrastEnhanced, setContrastEnhanced] = useState(false);
 
-  // Extracted fields editable state
-  const [patientName, setPatientName] = useState('Chaitanya');
-  const [visitDate, setVisitDate] = useState('14 Sep 2024');
-  const [doctorName, setDoctorName] = useState(selectedPreset === 'prescription' ? 'Dr. S. Kumar' : 'Dr. Ananya Rao');
-  const [facilityName, setFacilityName] = useState(selectedPreset === 'prescription' ? 'City Care Clinic' : 'City Care Lab');
+  // Extracted fields editable state (defaults to authenticated user, empty clinician)
+  const [patientName, setPatientName] = useState(user.name || '');
+  const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0]);
+  const [doctorName, setDoctorName] = useState('');
+  const [facilityName, setFacilityName] = useState('');
+  const [docTitle, setDocTitle] = useState('Prescription');
 
-  const [medicines, setMedicines] = useState<ExtractedMedicine[]>([
-    { id: '1', name: 'Amlodipine 5 mg', dosage: '5 mg', frequency: '1 tab daily (OD)', duration: '30 days', timing: 'morning' },
-    { id: '2', name: 'Metformin 500 mg', dosage: '500 mg', frequency: '1 tab twice daily (BD) after food', duration: '30 days', timing: 'multiple' },
-    { id: '3', name: 'Atorvastatin 10 mg', dosage: '10 mg', frequency: '1 tab daily (OD)', duration: '30 days', timing: 'night' },
-  ]);
+  const [medicines, setMedicines] = useState<ExtractedMedicine[]>([]);
 
   const handleSelectPreset = (preset: 'prescription' | 'cbc') => {
     setSelectedPreset(preset);
@@ -61,7 +60,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       }
       setIsProcessing(false);
     }).catch(() => {
-      const res = analyzeDocument(preset);
+      const res = analyzeDocument(preset, patientName);
       setPatientName(res.patientName);
       setVisitDate(res.visitDate);
       setDoctorName(res.doctorName);
@@ -75,25 +74,24 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
     const analysis = analyzeDocument(selectedPreset, patientName);
     const newRecord: MedicalRecord = {
       id: `rec_${Date.now()}`,
-      title: selectedPreset === 'prescription' ? 'Prescription - Dr. S. Kumar' : 'Complete Blood Count (CBC)',
-      documentType: selectedPreset === 'prescription' ? 'Prescription' : 'Lab Report',
-      patientName,
-      visitDate,
-      doctorName,
-      facilityName,
-      specialty: selectedPreset === 'prescription' ? 'General Medicine' : 'Pathology',
-      originalFileUrl: selectedPreset === 'prescription' ? samplePrescriptionSvg : sampleCBCReportSvg,
-      originalFileName: selectedPreset === 'prescription' ? 'Prescription_DrKumar.jpg' : 'CBC_LabReport.pdf',
+      title: docTitle || (selectedPreset === 'cbc' ? 'Lab Report' : 'Prescription'),
+      documentType: selectedPreset === 'cbc' ? 'Lab Report' : 'Prescription',
+      patientName: patientName || user.name || 'Patient',
+      visitDate: visitDate || new Date().toISOString().split('T')[0],
+      doctorName: doctorName || 'Attending Clinician',
+      facilityName: facilityName || 'Healthcare Facility',
+      specialty: selectedPreset === 'cbc' ? 'Pathology' : 'General Medicine',
+      originalFileUrl: customCapturedImage || undefined,
+      originalFileName: customFile?.name || (selectedPreset === 'cbc' ? 'lab_report.jpg' : 'prescription.jpg'),
       status: isEditing ? 'corrected' : 'verified',
       aiSummary: analysis.aiExplanation,
       keyFindings: analysis.reviewAlerts,
-      medicines: selectedPreset === 'prescription' ? medicines : [],
+      medicines: medicines,
       labValues: selectedPreset === 'cbc' ? analysis.labValues : [],
-      followUpDate: selectedPreset === 'prescription' ? '2024-09-21' : undefined,
       createdAt: new Date().toISOString()
     };
 
-    onSaveRecord(newRecord);
+    onSaveRecord(newRecord, customFile || undefined);
     onViewSummary(newRecord);
   };
 

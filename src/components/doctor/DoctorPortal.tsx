@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Doctor, PatientListItem, MedicalRecord, ExtractedMedicine } from '../../types';
-import { doctorPortalPatients, initialMedicalRecords } from '../../data/mockData';
+import { useAuth } from '../../context/AuthContext';
 
 interface DoctorPortalProps {
   onSwitchToPatient: () => void;
@@ -18,6 +18,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   onSwitchToPatient,
   onPublishPrescriptionToPatient
 }) => {
+  const { user } = useAuth();
+  const doctorDisplayName = user?.name ? (user.name.startsWith('Dr.') ? user.name : `Dr. ${user.name}`) : 'Dr. Practitioner';
+  const doctorInitials = user?.name 
+    ? user.name.replace(/^Dr\.\s*/i, '').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'DR'
+    : 'DR';
+
   // Navigation tabs for doctor: home | patients | appointments | messages | profile
   const [activeTab, setActiveTab] = useState<'home' | 'patients' | 'appointments' | 'messages' | 'profile'>('home');
   
@@ -28,8 +34,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   const [showAddPatientModal, setShowAddPatientModal] = useState(false);
   const [prescriptionTab, setPrescriptionTab] = useState<'write' | 'upload'>('write');
 
-  // Patients state
-  const [patients, setPatients] = useState<PatientListItem[]>(doctorPortalPatients);
+  // Patients state - initialized empty for real database/authenticated doctor
+  const [patients, setPatients] = useState<PatientListItem[]>([]);
   const [patientSearch, setPatientSearch] = useState('');
   const [patientFilter, setPatientFilter] = useState<'all' | 'followup' | 'recent' | 'chronic'>('all');
 
@@ -37,14 +43,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   const [newMedName, setNewMedName] = useState('');
   const [newMedDose, setNewMedDose] = useState('1 tab OD');
   const [newMedDuration, setNewMedDuration] = useState('7 days');
-  const [prescriptionMedicines, setPrescriptionMedicines] = useState<ExtractedMedicine[]>([
-    { id: '1', name: 'Paracetamol 500 mg', dosage: '500 mg', frequency: '1 tablet (TDS) - 5 days', duration: '5 days', timing: 'morning' },
-    { id: '2', name: 'Levocetirizine 5 mg', dosage: '5 mg', frequency: '1 tablet (OD) - 7 days', duration: '7 days', timing: 'night' },
-    { id: '3', name: 'Montelukast 10 mg', dosage: '10 mg', frequency: '1 tablet (HS) - 7 days', duration: '7 days', timing: 'night' },
-  ]);
-  const [rxInstructions, setRxInstructions] = useState('Take medicine after food. Avoid cold drinks. Follow up after 1 week.');
-  const [rxFollowUpDate, setRxFollowUpDate] = useState('21/09/2024');
-  const [rxFollowUpTime, setRxFollowUpTime] = useState('10:00 AM');
+  const [prescriptionMedicines, setPrescriptionMedicines] = useState<ExtractedMedicine[]>([]);
+  const [rxInstructions, setRxInstructions] = useState('');
+  const [rxFollowUpDate, setRxFollowUpDate] = useState('');
+  const [rxFollowUpTime, setRxFollowUpTime] = useState('');
   const [sendNotification, setSendNotification] = useState(true);
 
   // New patient modal state
@@ -55,12 +57,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   const [newPatAbha, setNewPatAbha] = useState('');
 
   // Messages state
-  const [activeChatPatient, setActiveChatPatient] = useState<PatientListItem | null>(patients[0]);
-  const [chatMessages, setChatMessages] = useState<{ sender: 'doc' | 'patient'; text: string; time: string }[]>([
-    { sender: 'patient', text: 'Good morning doctor, I have uploaded my latest report.', time: '10:20 AM' },
-    { sender: 'doc', text: 'Hello Ramesh. I reviewed your CBC report. Your Hemoglobin is slightly low at 10.8 g/dL. Have you been feeling tired?', time: '10:22 AM' },
-    { sender: 'patient', text: 'A little bit in the evenings. Should I start any iron supplement?', time: '10:24 AM' }
-  ]);
+  const [activeChatPatient, setActiveChatPatient] = useState<PatientListItem | null>(null);
+  const [chatMessages, setChatMessages] = useState<{ sender: 'doc' | 'patient'; text: string; time: string }[]>([]);
   const [chatInput, setChatInput] = useState('');
 
   const handleAddMedicineToRx = () => {

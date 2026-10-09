@@ -118,72 +118,90 @@ export const MedicinesReminders: React.FC<MedicinesRemindersProps> = ({
             Active Schedule
           </div>
 
-          <div className="space-y-2.5">
-            {reminders.map(rem => {
-              const isTaken = rem.status === 'taken';
-              const isSkipped = rem.status === 'skipped';
+          {reminders.length === 0 ? (
+            <div className="py-12 px-4 bg-white rounded-2xl border border-dashed border-slate-200 text-center flex flex-col items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center mb-2.5">
+                <Pill className="w-6 h-6" />
+              </div>
+              <h3 className="font-bold text-sm text-slate-800">No medications have been added.</h3>
+              <p className="text-xs text-slate-500 max-w-xs mt-1">
+                Scan a prescription or tap "Add Medication" below to set up dosage reminders and track your adherence.
+              </p>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="mt-4 px-4 py-2 bg-teal-700 text-white rounded-xl text-xs font-bold hover:bg-teal-800 transition-colors shadow-xs"
+              >
+                + Add Medication
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {reminders.map(rem => {
+                const isTaken = rem.status === 'taken';
+                const isSkipped = rem.status === 'skipped';
 
-              return (
-                <div
-                  key={rem.id}
-                  className={`p-3.5 bg-white rounded-2xl border transition-all ${
-                    isTaken ? 'border-emerald-200/80 bg-emerald-50/20' :
-                    isSkipped ? 'border-slate-200 opacity-60' :
-                    'border-slate-200/90 shadow-2xs hover:border-teal-300'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
-                        isTaken ? 'bg-emerald-100 text-emerald-800' :
-                        isSkipped ? 'bg-slate-100 text-slate-500' :
-                        'bg-rose-50 text-rose-600'
-                      }`}>
-                        <Pill className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-xs text-slate-900">{rem.medicineName}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">
-                          {rem.dosage} · <span className="font-semibold text-teal-800">{rem.timeSlot} ({rem.slotName})</span>
+                return (
+                  <div
+                    key={rem.id}
+                    className={`p-3.5 bg-white rounded-2xl border transition-all ${
+                      isTaken ? 'border-emerald-200/80 bg-emerald-50/20' :
+                      isSkipped ? 'border-slate-200 opacity-60' :
+                      'border-slate-200/90 shadow-2xs hover:border-teal-300'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                          isTaken ? 'bg-emerald-100 text-emerald-800' :
+                          isSkipped ? 'bg-slate-100 text-slate-500' :
+                          'bg-rose-50 text-rose-600'
+                        }`}>
+                          <Pill className="w-4 h-4" />
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">{rem.instructions}</div>
+                        <div>
+                          <div className="font-bold text-xs text-slate-900">{rem.medicineName}</div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            {rem.dosage} · <span className="font-semibold text-teal-800">{rem.timeSlot} ({rem.slotName})</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">{rem.instructions}</div>
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Status / Action */}
-                    <div className="flex items-center gap-1.5">
-                      {isTaken ? (
-                        <button
-                          onClick={() => onToggleStatus(rem.id, 'pending')}
-                          className="flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold"
-                          title="Click to undo"
-                        >
-                          <Check className="w-3 h-3 stroke-[3]" />
-                          <span>Taken</span>
-                        </button>
-                      ) : (
-                        <div className="flex items-center gap-1">
+                      {/* Status / Action */}
+                      <div className="flex items-center gap-1.5">
+                        {isTaken ? (
                           <button
-                            onClick={() => handleTakeNow(rem.id)}
-                            className="px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs shadow-xs active:scale-95 transition-all"
+                            onClick={() => onToggleStatus(rem.id, 'pending')}
+                            className="flex items-center gap-1 px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold"
+                            title="Click to undo"
                           >
-                            Take now
+                            <Check className="w-3 h-3 stroke-[3]" />
+                            <span>Taken</span>
                           </button>
-                          <button
-                            onClick={() => onToggleStatus(rem.id, 'skipped')}
-                            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
-                            title="Skip dose"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleTakeNow(rem.id)}
+                              className="px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs shadow-xs active:scale-95 transition-all"
+                            >
+                              Take now
+                            </button>
+                            <button
+                              onClick={() => onToggleStatus(rem.id, 'skipped')}
+                              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
+                              title="Skip dose"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

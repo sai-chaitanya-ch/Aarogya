@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, Globe, Stethoscope, User, X, Check, Clock } from 'lucide-react';
+import { Bell, Globe, Stethoscope, User, X, Check, Clock, LogOut } from 'lucide-react';
 import { AarogyaLogo } from './AarogyaLogo';
 import { Language, UserProfile, ActiveMedicationReminder, Appointment } from '../../types';
 
@@ -11,10 +11,12 @@ interface HeaderProps {
   user: UserProfile;
   reminders: ActiveMedicationReminder[];
   appointments: Appointment[];
+  isAuthenticated?: boolean;
   onOpenProfile?: () => void;
   onOpenEmergencyCard?: () => void;
   onOpenAuthModal?: () => void;
   onExportSummary?: () => void;
+  onSignOut?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -25,10 +27,12 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   reminders,
   appointments,
+  isAuthenticated = false,
   onOpenProfile,
   onOpenEmergencyCard,
   onOpenAuthModal,
-  onExportSummary
+  onExportSummary,
+  onSignOut
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
@@ -204,14 +208,37 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* User Avatar Badge matching screenshot "SC" circle */}
-          <button
-            onClick={onOpenProfile}
-            className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold text-xs flex items-center justify-center hover:ring-2 hover:ring-teal-600 transition-all shadow-inner"
-            title="Profile details & settings"
-          >
-            {user.name.slice(0, 2).toUpperCase()}
-          </button>
+          {/* Authenticated user actions or Sign In button */}
+          {isAuthenticated ? (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={onOpenProfile}
+                className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold text-xs flex items-center justify-center hover:ring-2 hover:ring-teal-600 transition-all shadow-inner"
+                title="Profile details & settings"
+              >
+                {user.name ? user.name.slice(0, 2).toUpperCase() : 'ME'}
+              </button>
+
+              {onSignOut && (
+                <button
+                  onClick={onSignOut}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 transition-colors"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          ) : (
+            onOpenAuthModal && (
+              <button
+                onClick={onOpenAuthModal}
+                className="px-3 py-1 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+              >
+                Sign In
+              </button>
+            )
+          )}
         </div>
       </div>
     </header>

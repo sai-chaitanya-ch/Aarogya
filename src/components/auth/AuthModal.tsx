@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User, ShieldCheck, Stethoscope, ArrowRight } from 'lucide-react';
+import { X, Lock, Mail, User, ShieldCheck, Stethoscope, ArrowRight, AlertTriangle } from 'lucide-react';
 import { useAuth, UserRole } from '../../context/AuthContext';
 import { AarogyaLogo } from '../common/AarogyaLogo';
 
 interface AuthModalProps {
   isOpen: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  canClose?: boolean;
 }
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose = true }) => {
   if (!isOpen) return null;
 
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle, continueAsGuest, isLoading } = useAuth();
+  const { signInWithEmail, signUpWithEmail, signInWithGoogle, isLoading, isConfigured, configError } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [selectedRole, setSelectedRole] = useState<UserRole>('patient');
   const [email, setEmail] = useState('');
@@ -23,10 +24,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     e.preventDefault();
     setErrorMsg(null);
 
+    if (!isConfigured) {
+      setErrorMsg('Supabase environment variables are missing. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable authentication.');
+      return;
+    }
+
     if (mode === 'signin') {
       const res = await signInWithEmail(email, password, selectedRole);
       if (res.success) {
-        onClose();
+        if (onClose) onClose();
       } else {
         setErrorMsg(res.error || 'Failed to sign in. Check email and password.');
       }
@@ -37,16 +43,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       }
       const res = await signUpWithEmail(email, password, fullName, selectedRole);
       if (res.success) {
-        onClose();
+        if (onClose) onClose();
       } else {
         setErrorMsg(res.error || 'Failed to register account.');
       }
     }
-  };
-
-  const handleGuestLogin = () => {
-    continueAsGuest(selectedRole);
-    onClose();
   };
 
   return (
@@ -55,9 +56,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         {/* Header */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
           <AarogyaLogo size="sm" showSubtitle={false} />
-          <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:text-slate-600">
-            <X className="w-4 h-4" />
-          </button>
+          {canClose && onClose && (
+            <button onClick={onClose} className="p-1 rounded-full text-slate-400 hover:text-slate-600">
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Title */}
@@ -66,9 +69,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             {mode === 'signin' ? 'Welcome Back to Aarogya' : 'Create Your Aarogya Account'}
           </h3>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Personal Health Copilot · Safe, Encrypted, Private
+            Personal Health Copilot · Private & Secure
           </p>
         </div>
+
+        {/* Configuration Error / Notice */}
+        {!isConfigured && (
+          <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">Database Setup Required</div>
+              <div className="text-[11px] text-amber-800/90 leading-tight mt-0.5">
+                {configError || 'Please add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your environment (.env) to authenticate.'}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Role Selector Pill */}
         <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-2xl">
@@ -139,7 +155,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   required
                   value={fullName}
                   onChange={e => setFullName(e.target.value)}
-                  placeholder="e.g. Chaitanya V"
+                  placeholder="Enter your full name"
                   className="w-full pl-9 pr-3 py-2 border rounded-xl outline-none focus:border-teal-700 text-xs"
                 />
               </div>
@@ -178,7 +194,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || !isConfigured}
             className="w-full py-2.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-black rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
           >
             <span>{isLoading ? 'Authenticating...' : mode === 'signin' ? 'Sign In' : 'Create Account'}</span>
@@ -189,8 +205,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         {/* Google OAuth Button */}
         <button
           type="button"
+          disabled={!isConfigured}
           onClick={signInWithGoogle}
-          className="w-full py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
+          className="w-full py-2 bg-slate-50 hover:bg-slate-100 disabled:opacity-50 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
@@ -200,17 +217,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </svg>
           <span>Continue with Google</span>
         </button>
-
-        {/* 1-Click Guest Demo Mode */}
-        <div className="pt-2 border-t border-slate-100 text-center">
-          <button
-            type="button"
-            onClick={handleGuestLogin}
-            className="text-xs font-bold text-teal-800 hover:text-teal-900 underline"
-          >
-            ⚡ Continue in Instant Demo Mode
-          </button>
-        </div>
       </div>
     </div>
   );
