@@ -238,7 +238,9 @@ export const ReportSummaryStep: React.FC<ReportSummaryStepProps> = ({
                       {item.value}
                     </div>
                     <span className={`inline-block text-[9px] font-bold px-1.5 py-0.2 rounded mt-0.5 ${
-                      item.status === 'normal' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'
+                      item.status === 'normal' ? 'bg-emerald-100 text-emerald-800' :
+                      item.status === 'unknown' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
+                      'bg-red-100 text-red-700'
                     }`}>
                       {item.status.toUpperCase()}
                     </span>
@@ -278,6 +280,7 @@ export const ReportSummaryStep: React.FC<ReportSummaryStepProps> = ({
                         <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
                           lv.status === 'low' ? 'bg-red-100 text-red-700' :
                           lv.status === 'high' ? 'bg-amber-100 text-amber-700' :
+                          lv.status === 'unknown' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
                           'bg-emerald-100 text-emerald-800'
                         }`}>
                           {lv.status.toUpperCase()}

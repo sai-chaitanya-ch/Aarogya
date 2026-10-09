@@ -1,22 +1,28 @@
 import React, { useState } from 'react';
 import { 
-  Crop, RotateCw, Sparkles, Check, Edit2, AlertTriangle, 
-  ArrowLeft, FileText, Upload, Plus, Trash2, SlidersHorizontal, Camera
+  Crop, RotateCw, Sparkles, Edit2, AlertTriangle, 
+  ArrowLeft, Upload, Plus, Trash2, SlidersHorizontal, Camera, Check, AlertCircle, FileText
 } from 'lucide-react';
-import { MedicalRecord, Language, ExtractedMedicine } from '../../types';
+import { MedicalRecord, Language, ExtractedMedicine, ExtractedLabValue, DocumentType } from '../../types';
 import { translations } from '../../data/translations';
-import { analyzeDocument, DocumentAnalysisResult } from '../../services/aiService';
-import { samplePrescriptionSvg, sampleCBCReportSvg } from '../../data/mockData';
 import { processDocumentWithBackend } from '../../services/api';
 import { LiveCameraScanner } from './LiveCameraScanner';
 import { useAuth } from '../../context/AuthContext';
 
 interface ScanReviewStepProps {
   language: Language;
-  onSaveRecord: (record: MedicalRecord, fileBlob?: File | Blob) => void;
+  onSaveRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<void> | void;
   onCancel: () => void;
   onViewSummary: (record: MedicalRecord) => void;
 }
+
+const DOCUMENT_CATEGORIES: DocumentType[] = [
+  'Prescription',
+  'Lab Report',
+  'Discharge Summary',
+  'X-Ray / Imaging',
+  'Clinical Notes'
+];
 
 export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   language,
@@ -27,9 +33,17 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const t = translations[language];
   const { user } = useAuth();
 
-  // Document selection mode
-  const [selectedPreset, setSelectedPreset] = useState<'prescription' | 'cbc' | 'custom'>('custom');
+  // Candidate extraction state & errors
+  const [processedRecord, setProcessedRecord] = useState<MedicalRecord | null>(null);
+  const [processingError, setProcessingError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Document category
+  const [selectedDocType, setSelectedDocType] = useState<DocumentType>('Prescription');
+
+  // UI state
   const [isEditing, setIsEditing] = useState(true);
   const [showCropModal, setShowCropModal] = useState(false);
   const [showLiveCamera, setShowLiveCamera] = useState(false);
@@ -38,61 +52,85 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const [rotation, setRotation] = useState(0);
   const [contrastEnhanced, setContrastEnhanced] = useState(false);
 
-  // Extracted fields editable state (defaults to authenticated user, empty clinician)
+  // Extracted fields editable state
   const [patientName, setPatientName] = useState(user.name || '');
   const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0]);
   const [doctorName, setDoctorName] = useState('');
   const [facilityName, setFacilityName] = useState('');
   const [docTitle, setDocTitle] = useState('Prescription');
-
   const [medicines, setMedicines] = useState<ExtractedMedicine[]>([]);
+  const [labValues, setLabValues] = useState<ExtractedLabValue[]>([]);
 
-  const handleSelectPreset = (preset: 'prescription' | 'cbc') => {
-    setSelectedPreset(preset);
+  const handleProcessFile = async (file: File) => {
+    setCustomFile(file);
+    const previewUrl = URL.createObjectURL(file);
+    setCustomCapturedImage(previewUrl);
     setIsProcessing(true);
-    processDocumentWithBackend(null, preset, patientName).then(({ record }) => {
-      setPatientName(record.patientName);
-      setVisitDate(record.visitDate);
-      setDoctorName(record.doctorName);
-      setFacilityName(record.facilityName);
-      if (record.medicines && record.medicines.length > 0) {
-        setMedicines(record.medicines);
-      }
+    setProcessingError(null);
+    setSaveError(null);
+
+    try {
+      const preset = selectedDocType === 'Lab Report' ? 'cbc' : selectedDocType === 'Discharge Summary' ? 'discharge' : 'prescription';
+      const { record, rawExtractedText } = await processDocumentWithBackend(file, preset, patientName);
+      
+      const candidate: MedicalRecord = {
+        ...record,
+        rawExtractedText
+      };
+      setProcessedRecord(candidate);
+
+      // Populate candidate field values
+      setDocTitle(candidate.title || `${candidate.documentType}${candidate.facilityName ? ` — ${candidate.facilityName}` : ''}`);
+      setSelectedDocType(candidate.documentType || selectedDocType);
+      if (candidate.patientName) setPatientName(candidate.patientName);
+      if (candidate.visitDate) setVisitDate(candidate.visitDate);
+      setDoctorName(candidate.doctorName || '');
+      setFacilityName(candidate.facilityName || '');
+      setMedicines(candidate.medicines || []);
+      setLabValues(candidate.labValues || []);
+    } catch (err: any) {
+      setProcessingError(err?.message || 'Failed to extract document information. Please verify your file or enter details manually.');
+    } finally {
       setIsProcessing(false);
-    }).catch(() => {
-      const res = analyzeDocument(preset, patientName);
-      setPatientName(res.patientName);
-      setVisitDate(res.visitDate);
-      setDoctorName(res.doctorName);
-      setFacilityName(res.facilityName);
-      setMedicines(res.medicines);
-      setIsProcessing(false);
-    });
+    }
   };
 
-  const handleSave = () => {
-    const analysis = analyzeDocument(selectedPreset, patientName);
-    const newRecord: MedicalRecord = {
-      id: `rec_${Date.now()}`,
-      title: docTitle || (selectedPreset === 'cbc' ? 'Lab Report' : 'Prescription'),
-      documentType: selectedPreset === 'cbc' ? 'Lab Report' : 'Prescription',
-      patientName: patientName || user.name || 'Patient',
-      visitDate: visitDate || new Date().toISOString().split('T')[0],
-      doctorName: doctorName || 'Attending Clinician',
-      facilityName: facilityName || 'Healthcare Facility',
-      specialty: selectedPreset === 'cbc' ? 'Pathology' : 'General Medicine',
-      originalFileUrl: customCapturedImage || undefined,
-      originalFileName: customFile?.name || (selectedPreset === 'cbc' ? 'lab_report.jpg' : 'prescription.jpg'),
-      status: isEditing ? 'corrected' : 'verified',
-      aiSummary: analysis.aiExplanation,
-      keyFindings: analysis.reviewAlerts,
-      medicines: medicines,
-      labValues: selectedPreset === 'cbc' ? analysis.labValues : [],
-      createdAt: new Date().toISOString()
-    };
+  const handleSave = async () => {
+    if (!customFile) {
+      setSaveError('Please select or capture a real medical document before saving.');
+      return;
+    }
 
-    onSaveRecord(newRecord, customFile || undefined);
-    onViewSummary(newRecord);
+    setSaveError(null);
+    setIsSaving(true);
+
+    try {
+      const recordToSave: MedicalRecord = {
+        id: processedRecord?.id || `rec_${Date.now()}`,
+        title: docTitle.trim() || `${selectedDocType}${facilityName ? ` — ${facilityName}` : ''}`,
+        documentType: selectedDocType,
+        patientName: patientName.trim() || user.name || 'Patient',
+        visitDate: visitDate || new Date().toISOString().split('T')[0],
+        doctorName: doctorName.trim(),
+        facilityName: facilityName.trim(),
+        specialty: processedRecord?.specialty || (selectedDocType === 'Lab Report' ? 'Pathology' : 'General Medicine'),
+        status: isEditing ? 'corrected' : 'verified',
+        aiSummary: processedRecord?.aiSummary || { en: 'Document scanned and verified.' },
+        keyFindings: processedRecord?.keyFindings || [],
+        medicines: medicines,
+        labValues: labValues,
+        rawExtractedText: processedRecord?.rawExtractedText || '',
+        originalFileName: customFile.name,
+        createdAt: new Date().toISOString()
+      };
+
+      await onSaveRecord(recordToSave, customFile);
+      onViewSummary(recordToSave);
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to save document. Please check your connection and try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -109,12 +147,20 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
             </button>
             <h2 className="text-sm font-extrabold text-slate-800">{t.scanAndReview}</h2>
           </div>
-          <button
-            onClick={() => handleSelectPreset(selectedPreset === 'prescription' ? 'cbc' : 'prescription')}
-            className="text-xs font-bold text-teal-700 hover:text-teal-900 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200/50"
-          >
-            {t.retake}
-          </button>
+          {customFile && (
+            <button
+              onClick={() => {
+                setCustomFile(null);
+                setCustomCapturedImage(null);
+                setProcessedRecord(null);
+                setProcessingError(null);
+                setSaveError(null);
+              }}
+              className="text-xs font-bold text-teal-700 hover:text-teal-900 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200/50"
+            >
+              {t.retake}
+            </button>
+          )}
         </div>
 
         {/* Camera & File Upload Quick Controls */}
@@ -138,60 +184,62 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) {
-                  setCustomFile(file);
-                  const url = URL.createObjectURL(file);
-                  setCustomCapturedImage(url);
-                  setSelectedPreset('custom');
-                  setIsProcessing(true);
-                  processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
-                    setPatientName(record.patientName);
-                    setVisitDate(record.visitDate);
-                    setDoctorName(record.doctorName);
-                    setFacilityName(record.facilityName);
-                    if (record.medicines && record.medicines.length > 0) {
-                      setMedicines(record.medicines);
-                    }
-                    setIsProcessing(false);
-                  }).catch(() => {
-                    setIsProcessing(false);
-                  });
+                  handleProcessFile(file);
                 }
               }}
             />
           </label>
         </div>
 
-        {/* Preset Selector Pill for Testing */}
-        <div className="mt-2 flex items-center justify-between bg-slate-200/70 p-1 rounded-xl text-xs font-semibold">
-          <button
-            type="button"
-            onClick={() => {
-              setCustomCapturedImage(null);
-              setCustomFile(null);
-              handleSelectPreset('prescription');
-            }}
-            className={`flex-1 py-1.5 rounded-lg transition-all ${
-              selectedPreset === 'prescription' ? 'bg-white text-teal-900 shadow-xs' : 'text-slate-600'
-            }`}
-          >
-            Prescription (Dr. Kumar)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setCustomCapturedImage(null);
-              setCustomFile(null);
-              handleSelectPreset('cbc');
-            }}
-            className={`flex-1 py-1.5 rounded-lg transition-all ${
-              selectedPreset === 'cbc' ? 'bg-white text-teal-900 shadow-xs' : 'text-slate-600'
-            }`}
-          >
-            Lab Report (CBC)
-          </button>
+        {/* Document Category Selection */}
+        <div className="mt-2.5">
+          <div className="text-[11px] font-bold text-slate-600 mb-1.5">Document Category</div>
+          <div className="flex flex-wrap gap-1.5">
+            {DOCUMENT_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => {
+                  setSelectedDocType(cat);
+                  if (!docTitle || DOCUMENT_CATEGORIES.includes(docTitle as DocumentType)) {
+                    setDocTitle(cat);
+                  }
+                }}
+                className={`py-1 px-2.5 rounded-lg text-xs font-semibold transition-all ${
+                  selectedDocType === cat
+                    ? 'bg-teal-700 text-white shadow-xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Scanned Image Preview Container */}
+        {/* Processing Error Banner */}
+        {processingError && (
+          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">Extraction notice</div>
+              <div className="text-[11px] text-amber-800 mt-0.5">{processingError}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Save Error Banner */}
+        {saveError && (
+          <div className="mt-3 p-3 bg-red-50 border border-red-200 text-red-900 rounded-xl text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">Save failed</div>
+              <div className="text-[11px] text-red-800 mt-0.5">{saveError}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Document Preview Container */}
         <div className="relative mt-3 rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-xs group">
           <div 
             className="w-full h-52 flex items-center justify-center p-2 bg-slate-50 transition-transform duration-300"
@@ -201,36 +249,38 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
             }}
           >
             {customCapturedImage ? (
-              <img
-                src={customCapturedImage}
-                alt="Captured Medical Document"
-                className="max-h-full max-w-full object-contain rounded-lg"
-              />
-            ) : selectedPreset === 'prescription' ? (
-              <img
-                src={samplePrescriptionSvg}
-                alt="Prescription"
-                className="max-h-full max-w-full object-contain rounded-lg"
-              />
+              customFile?.type === 'application/pdf' ? (
+                <div className="flex flex-col items-center justify-center text-center p-4">
+                  <FileText className="w-12 h-12 text-teal-700 mb-2" />
+                  <span className="font-bold text-xs text-slate-800">{customFile.name}</span>
+                  <span className="text-[10px] text-slate-500 mt-0.5">{(customFile.size / 1024).toFixed(1)} KB PDF</span>
+                </div>
+              ) : (
+                <img
+                  src={customCapturedImage}
+                  alt="Captured Medical Document"
+                  className="max-h-full max-w-full object-contain rounded-lg"
+                />
+              )
             ) : (
-              <img
-                src={sampleCBCReportSvg}
-                alt="CBC Lab Report"
-                className="max-h-full max-w-full object-contain rounded-lg"
-              />
+              <div className="flex flex-col items-center justify-center text-center p-4 text-slate-400">
+                <Upload className="w-8 h-8 text-slate-300 mb-2" />
+                <span className="text-xs font-semibold text-slate-600">No document selected yet</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Open camera or upload photo/PDF to run OCR & field extraction</span>
+              </div>
             )}
           </div>
 
-          {/* Crop & Adjust Overlay Button matching mockup */}
-          <button
-            onClick={() => setShowCropModal(true)}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/80 hover:bg-slate-900 text-white rounded-full text-xs font-semibold backdrop-blur-md shadow-md transition-all active:scale-95"
-          >
-            <Crop className="w-3.5 h-3.5" />
-            <span>{t.cropAdjust}</span>
-          </button>
+          {customCapturedImage && customFile?.type !== 'application/pdf' && (
+            <button
+              onClick={() => setShowCropModal(true)}
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/80 hover:bg-slate-900 text-white rounded-full text-xs font-semibold backdrop-blur-md shadow-md transition-all active:scale-95"
+            >
+              <Crop className="w-3.5 h-3.5" />
+              <span>{t.cropAdjust}</span>
+            </button>
+          )}
 
-          {/* OCR Processing overlay */}
           {isProcessing && (
             <div className="absolute inset-0 bg-white/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2">
               <Sparkles className="w-6 h-6 text-teal-600 animate-spin" />
@@ -257,13 +307,28 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           {/* Patient Details */}
           <div className="space-y-2 text-xs">
             <div className="flex items-center justify-between py-1.5 border-b border-slate-50">
+              <span className="text-slate-500 font-medium">Document Title</span>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={docTitle}
+                  onChange={e => setDocTitle(e.target.value)}
+                  placeholder="e.g. Prescription — Dr. Rao"
+                  className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none w-52 text-right"
+                />
+              ) : (
+                <span className="font-bold text-slate-800">{docTitle}</span>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between py-1.5 border-b border-slate-50">
               <span className="text-slate-500 font-medium">{t.patientNameLabel}</span>
               {isEditing ? (
                 <input
                   type="text"
                   value={patientName}
                   onChange={e => setPatientName(e.target.value)}
-                  className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none"
+                  className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none w-44 text-right"
                 />
               ) : (
                 <span className="font-bold text-slate-800">{patientName}</span>
@@ -274,7 +339,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
               <span className="text-slate-500 font-medium">{t.visitDateLabel}</span>
               {isEditing ? (
                 <input
-                  type="text"
+                  type="date"
                   value={visitDate}
                   onChange={e => setVisitDate(e.target.value)}
                   className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none"
@@ -285,32 +350,109 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
             </div>
 
             <div className="flex items-center justify-between py-1.5 border-b border-slate-50">
-              <span className="text-slate-500 font-medium">Provider / Clinic</span>
-              <span className="font-bold text-slate-800">{doctorName} ({facilityName})</span>
+              <span className="text-slate-500 font-medium">Doctor Name</span>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={doctorName}
+                  onChange={e => setDoctorName(e.target.value)}
+                  placeholder="Attending clinician"
+                  className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none w-44 text-right"
+                />
+              ) : (
+                <span className="font-bold text-slate-800">{doctorName || 'Not specified'}</span>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between py-1.5 border-b border-slate-50">
+              <span className="text-slate-500 font-medium">Facility / Hospital</span>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={facilityName}
+                  onChange={e => setFacilityName(e.target.value)}
+                  placeholder="Hospital or clinic name"
+                  className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none w-44 text-right"
+                />
+              ) : (
+                <span className="font-bold text-slate-800">{facilityName || 'Not specified'}</span>
+              )}
             </div>
           </div>
 
-          {/* Extracted Medicines Table (for Prescriptions) */}
-          {selectedPreset === 'prescription' && (
-            <div className="mt-3">
-              <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2">
-                {t.medicinesList}
+          {/* Extracted Medicines Table */}
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                {t.medicinesList} ({medicines.length})
               </div>
+              {isEditing && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newMed: ExtractedMedicine = {
+                      id: `med_${Date.now()}`,
+                      name: '',
+                      dosage: '',
+                      frequency: '',
+                      duration: '',
+                      timing: 'morning'
+                    };
+                    setMedicines([...medicines, newMed]);
+                  }}
+                  className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              )}
+            </div>
+
+            {medicines.length === 0 ? (
+              <p className="text-xs text-slate-400 italic py-1">No medications extracted from this document.</p>
+            ) : (
               <div className="space-y-2">
                 {medicines.map((med, index) => (
                   <div key={med.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-start justify-between">
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-2 flex-1">
                       <span className="w-5 h-5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
                         {index + 1}
                       </span>
-                      <div>
-                        <div className="font-bold text-slate-800 text-xs">{med.name}</div>
-                        <div className="text-[11px] text-slate-500">{med.frequency}</div>
-                      </div>
+                      {isEditing ? (
+                        <div className="grid grid-cols-2 gap-1.5 flex-1 pr-2">
+                          <input
+                            type="text"
+                            value={med.name}
+                            onChange={e => {
+                              const updated = [...medicines];
+                              updated[index].name = e.target.value;
+                              setMedicines(updated);
+                            }}
+                            placeholder="Medicine name"
+                            className="text-xs font-bold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200"
+                          />
+                          <input
+                            type="text"
+                            value={med.dosage}
+                            onChange={e => {
+                              const updated = [...medicines];
+                              updated[index].dosage = e.target.value;
+                              setMedicines(updated);
+                            }}
+                            placeholder="Dosage"
+                            className="text-xs text-slate-600 bg-white px-1.5 py-0.5 rounded border border-slate-200"
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-bold text-slate-800 text-xs">{med.name}</div>
+                          <div className="text-[11px] text-slate-500">{med.dosage} {med.frequency}</div>
+                        </div>
+                      )}
                     </div>
                     {isEditing && (
                       <button
-                        onClick={() => setMedicines(medicines.filter(m => m.id !== med.id))}
+                        type="button"
+                        onClick={() => setMedicines(medicines.filter((_, i) => i !== index))}
                         className="text-red-400 hover:text-red-600 p-1"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -318,63 +460,116 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                     )}
                   </div>
                 ))}
-
-                {isEditing && (
-                  <button
-                    onClick={() => {
-                      const newMed: ExtractedMedicine = {
-                        id: String(Date.now()),
-                        name: 'Paracetamol 500 mg',
-                        dosage: '500 mg',
-                        frequency: '1 tab SOS (as needed)',
-                        duration: '3 days',
-                        timing: 'afternoon'
-                      };
-                      setMedicines([...medicines, newMed]);
-                    }}
-                    className="w-full py-1.5 text-xs font-bold text-teal-700 bg-teal-50 border border-dashed border-teal-200 rounded-xl flex items-center justify-center gap-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add Medicine
-                  </button>
-                )}
               </div>
+            )}
+          </div>
+
+          {/* Extracted Lab Values */}
+          <div className="mt-4 pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                Extracted Lab Values ({labValues.length})
+              </div>
+              {isEditing && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newLab: ExtractedLabValue = {
+                      id: `lab_${Date.now()}`,
+                      testName: '',
+                      value: '',
+                      numericValue: 0,
+                      unit: '',
+                      referenceRange: '',
+                      status: 'unknown'
+                    };
+                    setLabValues([...labValues, newLab]);
+                  }}
+                  className="text-xs font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              )}
             </div>
-          )}
 
-          {/* Extracted Lab Values (for Lab Reports) */}
-          {selectedPreset === 'cbc' && (
-            <div className="mt-3">
-              <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2">
-                Key Extracted Tests
-              </div>
+            {labValues.length === 0 ? (
+              <p className="text-xs text-slate-400 italic py-1">No numeric lab biomarkers extracted from this document.</p>
+            ) : (
               <div className="space-y-1.5 text-xs">
-                <div className="flex items-center justify-between p-2 rounded-lg bg-red-50 border border-red-100">
-                  <span className="font-bold text-red-900">Hemoglobin (Hb)</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-extrabold text-red-600">10.8 g/dL</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-200 text-red-800">LOW</span>
+                {labValues.map((lab, index) => (
+                  <div key={lab.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+                    {isEditing ? (
+                      <div className="grid grid-cols-3 gap-1 flex-1 pr-2">
+                        <input
+                          type="text"
+                          value={lab.testName}
+                          onChange={e => {
+                            const updated = [...labValues];
+                            updated[index].testName = e.target.value;
+                            setLabValues(updated);
+                          }}
+                          placeholder="Test name"
+                          className="text-xs font-bold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200"
+                        />
+                        <input
+                          type="text"
+                          value={lab.value}
+                          onChange={e => {
+                            const updated = [...labValues];
+                            updated[index].value = e.target.value;
+                            setLabValues(updated);
+                          }}
+                          placeholder="Value"
+                          className="text-xs text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200"
+                        />
+                        <select
+                          value={lab.status}
+                          onChange={e => {
+                            const updated = [...labValues];
+                            updated[index].status = e.target.value as ExtractedLabValue['status'];
+                            setLabValues(updated);
+                          }}
+                          className="text-xs bg-white px-1 py-0.5 rounded border border-slate-200"
+                        >
+                          <option value="normal">Normal</option>
+                          <option value="low">Low</option>
+                          <option value="high">High</option>
+                          <option value="unknown">Unknown</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="font-bold text-slate-800">{lab.testName}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-extrabold text-slate-900">{lab.value}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            lab.status === 'low' ? 'bg-red-100 text-red-700' :
+                            lab.status === 'high' ? 'bg-amber-100 text-amber-700' :
+                            lab.status === 'unknown' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
+                            'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {lab.status.toUpperCase()}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    {isEditing && (
+                      <button
+                        type="button"
+                        onClick={() => setLabValues(labValues.filter((_, i) => i !== index))}
+                        className="text-red-400 hover:text-red-600 p-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-50 border border-emerald-100">
-                  <span className="font-medium text-slate-800">WBC Count</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-slate-800">6,800 /uL</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-800">NORMAL</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-50 border border-emerald-100">
-                  <span className="font-medium text-slate-800">Platelet Count</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-slate-800">2.1 lakh /uL</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-800">NORMAL</span>
-                  </div>
-                </div>
+                ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Review Before Saving Warning Card matching mockup */}
+        {/* Review Before Saving Warning Card */}
         <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-200/70 flex items-start gap-2.5">
           <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
@@ -390,14 +585,28 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       <div className="pt-4">
         <button
           onClick={handleSave}
-          className="w-full py-3.5 px-4 bg-teal-700 hover:bg-teal-800 active:scale-[0.99] text-white font-bold text-sm rounded-2xl shadow-md shadow-teal-700/20 flex items-center justify-center gap-2 transition-all"
+          disabled={isSaving || !customFile}
+          className={`w-full py-3.5 px-4 font-bold text-sm rounded-2xl shadow-md flex items-center justify-center gap-2 transition-all ${
+            !customFile
+              ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+              : isSaving
+              ? 'bg-teal-800 text-white cursor-wait opacity-80'
+              : 'bg-teal-700 hover:bg-teal-800 active:scale-[0.99] text-white shadow-teal-700/20'
+          }`}
         >
-          <span>{t.saveRecord}</span>
+          {isSaving ? (
+            <>
+              <Sparkles className="w-4 h-4 animate-spin" />
+              <span>Saving and encrypting document...</span>
+            </>
+          ) : (
+            <span>{t.saveRecord}</span>
+          )}
         </button>
       </div>
 
       {/* Crop & Adjust Interactive Modal */}
-      {showCropModal && (
+      {showCropModal && customCapturedImage && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-4">
             <div className="flex items-center justify-between border-b pb-2">
@@ -414,7 +623,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                 className="max-h-full max-w-full flex items-center justify-center"
               >
                 <img
-                  src={selectedPreset === 'prescription' ? samplePrescriptionSvg : sampleCBCReportSvg}
+                  src={customCapturedImage}
                   alt="Crop preview"
                   className="max-h-36 object-contain"
                 />
@@ -455,47 +664,16 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       {showLiveCamera && (
         <LiveCameraScanner
           onCapture={(blob, previewUrl) => {
-            setCustomCapturedImage(previewUrl);
-            setSelectedPreset('custom');
             setShowLiveCamera(false);
-            setIsProcessing(true);
-            const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
-            setCustomFile(file);
-            processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
-              setPatientName(record.patientName);
-              setVisitDate(record.visitDate);
-              setDoctorName(record.doctorName);
-              setFacilityName(record.facilityName);
-              if (record.medicines && record.medicines.length > 0) {
-                setMedicines(record.medicines);
-              }
-              setIsProcessing(false);
-            }).catch(() => {
-              setIsProcessing(false);
-            });
+            const file = new File([blob], `camera_scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
+            handleProcessFile(file);
           }}
           onCancel={() => setShowLiveCamera(false)}
           onSelectFile={(e) => {
             const file = e.target.files?.[0];
             if (file) {
-              setCustomFile(file);
-              const url = URL.createObjectURL(file);
-              setCustomCapturedImage(url);
-              setSelectedPreset('custom');
               setShowLiveCamera(false);
-              setIsProcessing(true);
-              processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
-                setPatientName(record.patientName);
-                setVisitDate(record.visitDate);
-                setDoctorName(record.doctorName);
-                setFacilityName(record.facilityName);
-                if (record.medicines && record.medicines.length > 0) {
-                  setMedicines(record.medicines);
-                }
-                setIsProcessing(false);
-              }).catch(() => {
-                setIsProcessing(false);
-              });
+              handleProcessFile(file);
             }
           }}
         />

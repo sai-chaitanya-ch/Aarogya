@@ -4,7 +4,6 @@ import {
   FileText, AlertCircle, RefreshCw, Globe, ChevronRight 
 } from 'lucide-react';
 import { MedicalRecord, Language, ChatMessage } from '../../types';
-import { generateAarogyaChatResponse } from '../../services/aiService';
 import { sendChatToBackend } from '../../services/api';
 
 interface AskAarogyaChatProps {
@@ -80,30 +79,37 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     setInputText('');
     setIsTyping(true);
 
-    sendChatToBackend(query, language, records).then(result => {
-      const botMsg: ChatMessage = {
-        id: `ai_${Date.now()}`,
-        sender: 'aarogya',
-        text: result.text,
-        timestamp: 'Just now',
-        citations: result.citations,
-        isEmergencyAlert: result.isEmergency
-      };
-      setMessages(prev => [...prev, botMsg]);
-      setIsTyping(false);
-    }).catch(() => {
-      const fallbackResult = generateAarogyaChatResponse(query, language, records);
-      const botMsg: ChatMessage = {
-        id: `ai_${Date.now()}`,
-        sender: 'aarogya',
-        text: fallbackResult.text,
-        timestamp: 'Just now',
-        citations: fallbackResult.citations,
-        isEmergencyAlert: fallbackResult.isEmergencyAlert
-      };
-      setMessages(prev => [...prev, botMsg]);
-      setIsTyping(false);
-    });
+    sendChatToBackend(query, language, records)
+      .then(result => {
+        const botMsg: ChatMessage = {
+          id: `ai_${Date.now()}`,
+          sender: 'aarogya',
+          text: result.text,
+          timestamp: 'Just now',
+          citations: result.citations,
+          isEmergencyAlert: result.isEmergency
+        };
+        setMessages(prev => [...prev, botMsg]);
+        setIsTyping(false);
+      })
+      .catch((err: any) => {
+        const unavailableMsg: Record<Language, string> = {
+          en: err?.message || 'Aarogya AI is temporarily unavailable. Please try again in a moment.',
+          te: 'ఆరోగ్య AI తాత్కాలికంగా అందుబాటులో లేదు. దయచేసి కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
+          hi: 'आरोग्य AI अस्थायी रूप से अनुपलब्ध है। कृपया कुछ समय बाद पुनः प्रयास करें।',
+          ta: 'ஆரோக்யா AI தற்காலிகமாக கிடைக்கவில்லை. சிறிது நேரம் கழித்து மீண்டும் முயற்சிக்கவும்.'
+        };
+        const botMsg: ChatMessage = {
+          id: `ai_${Date.now()}`,
+          sender: 'aarogya',
+          text: unavailableMsg[language] || unavailableMsg.en,
+          timestamp: 'Just now',
+          citations: [],
+          isEmergencyAlert: false
+        };
+        setMessages(prev => [...prev, botMsg]);
+        setIsTyping(false);
+      });
   };
 
   // Web Speech API Voice Recognition

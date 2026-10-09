@@ -37,7 +37,7 @@ export interface ExtractedLabValue {
   numericValue: number;
   unit: string;
   referenceRange: string;
-  status: 'normal' | 'low' | 'high';
+  status: 'normal' | 'low' | 'high' | 'unknown';
   notes?: string;
 }
 
@@ -66,6 +66,7 @@ export interface MedicalRecord {
   medicines: ExtractedMedicine[];
   labValues: ExtractedLabValue[];
   followUpDate?: string;
+  rawExtractedText?: string;
   createdAt: string;
 }
 
