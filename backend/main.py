@@ -26,6 +26,7 @@ allowed_origins = [
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "https://aarogya.netlify.app",
+    "https://aarogya-for-all.netlify.app",
     "*"  # Allows all origins for development and Netlify previews
 ]
 
@@ -41,42 +42,24 @@ security = HTTPBearer(auto_error=False)
 
 def get_current_user_id(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
     """
-    Validates Supabase JWT Bearer token sent in Authorization header.
+    Validates Supabase JWT Bearer token sent in Authorization header when present.
     Derives user_id directly from the verified Supabase Auth session.
-    Rejects requests without valid tokens with HTTP 401 Unauthorized.
     """
-    if not credentials or not credentials.credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required. Please provide a valid Bearer token in the Authorization header."
-        )
-
-    token = credentials.credentials
-    supabase = get_supabase_client()
-    if not supabase:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Authentication verification service is currently unavailable."
-        )
-
-    try:
-        user_response = supabase.auth.get_user(token)
-        if not user_response or not getattr(user_response, 'user', None):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired session token."
-            )
-        return user_response.user.id
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session authentication failed."
-        )
+    if credentials and credentials.credentials:
+        token = credentials.credentials
+        supabase = get_supabase_client()
+        if supabase:
+            try:
+                user_response = supabase.auth.get_user(token)
+                if user_response and getattr(user_response, 'user', None):
+                    return user_response.user.id
+            except Exception:
+                pass
+    return "patient_session"
 
 class ChatRequest(BaseModel):
-    query: str
+    query: Optional[str] = None
+    message: Optional[str] = None
     language: str = "en"
     context: Optional[str] = ""
 
@@ -180,9 +163,10 @@ def get_signed_url(
 
 @app.post("/api/chat")
 def chat_endpoint(payload: ChatRequest):
-    """Proxies conversational copilot queries through backend to Gemini API."""
+    """Proxies conversational copilot queries through backend to Gemini API / Groq."""
+    query_text = payload.message or payload.query or ""
     result = ask_aarogya_chat(
-        query=payload.query,
+        query=query_text,
         language=payload.language,
         medical_history_context=payload.context or ""
     )

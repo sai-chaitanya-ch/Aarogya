@@ -37,6 +37,11 @@ def upload_private_medical_document(
         return storage_path
 
     try:
+        try:
+            supabase.storage.create_bucket("medical-records", options={"public": False})
+        except Exception:
+            pass
+
         supabase.storage.from_("medical-records").upload(
             path=storage_path,
             file=file_bytes,

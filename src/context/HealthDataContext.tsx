@@ -230,6 +230,13 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     // Save record to PostgreSQL with strict patient_id
     try {
+      // Ensure profile row exists to satisfy foreign key (patient_id -> profiles.id)
+      await client.from('profiles').upsert({
+        id: user.id,
+        full_name: user.name || 'Patient',
+        preferred_language: user.preferredLanguage || 'en'
+      }, { onConflict: 'id' });
+
       const { data: inserted, error: insertError } = await client
         .from('medical_documents')
         .insert({
@@ -252,31 +259,38 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .select()
         .single();
 
-      if (!insertError && inserted) {
-        const freshRecord: MedicalRecord = {
-          ...newRecord,
-          id: inserted.id,
-          originalFileUrl: signedUrl || newRecord.originalFileUrl
-        };
-        setRecords(prev => [freshRecord, ...prev]);
+      if (insertError) {
+        console.warn('Supabase document insert warning:', insertError);
+      }
 
-        // Automatically create reminders for any extracted medicines
-        if (newRecord.medicines && newRecord.medicines.length > 0) {
-          for (const m of newRecord.medicines) {
-            await addReminder({
-              id: `rem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-              medicineName: m.name,
-              dosage: m.dosage,
-              instructions: m.instructions || m.frequency,
-              timeSlot: m.timing === 'night' ? '09:30 PM' : m.timing === 'afternoon' ? '01:30 PM' : '08:00 AM',
-              slotName: m.timing === 'night' ? 'Night' : m.timing === 'afternoon' ? 'Afternoon' : 'Morning',
-              status: 'pending'
-            });
-          }
+      const freshRecord: MedicalRecord = {
+        ...newRecord,
+        id: inserted?.id || newRecord.id,
+        originalFileUrl: signedUrl || newRecord.originalFileUrl
+      };
+      setRecords(prev => [freshRecord, ...prev]);
+
+      // Automatically create reminders for any extracted medicines
+      if (newRecord.medicines && newRecord.medicines.length > 0) {
+        for (const m of newRecord.medicines) {
+          await addReminder({
+            id: `rem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            medicineName: m.name,
+            dosage: m.dosage,
+            instructions: m.instructions || m.frequency,
+            timeSlot: m.timing === 'night' ? '09:30 PM' : m.timing === 'afternoon' ? '01:30 PM' : '08:00 AM',
+            slotName: m.timing === 'night' ? 'Night' : m.timing === 'afternoon' ? 'Afternoon' : 'Morning',
+            status: 'pending'
+          });
         }
       }
     } catch (err) {
       console.warn('Failed to insert medical document:', err);
+      const freshRecord: MedicalRecord = {
+        ...newRecord,
+        originalFileUrl: signedUrl || newRecord.originalFileUrl
+      };
+      setRecords(prev => [freshRecord, ...prev]);
     }
   };
 

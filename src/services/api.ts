@@ -2,7 +2,7 @@ import { Language, MedicalRecord } from '../types';
 import { analyzeDocument, generateAarogyaChatResponse } from './aiService';
 import { supabase } from './supabase';
 
-const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 export interface BackendProcessResponse {
   success: boolean;
@@ -59,7 +59,7 @@ export async function processDocumentWithBackend(
       method: 'POST',
       headers: authHeaders,
       body: formData,
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(25000)
     });
 
     if (res.ok) {
@@ -140,14 +140,14 @@ export async function sendChatToBackend(
     const res = await fetch(`${BACKEND_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, language, context: contextSummary }),
-      signal: AbortSignal.timeout(6000)
+      body: JSON.stringify({ query, message: query, language, context: contextSummary }),
+      signal: AbortSignal.timeout(25000)
     });
 
     if (res.ok) {
       const data = await res.json();
       return {
-        text: data.response,
+        text: data.reply || data.response || '',
         citations: data.citations || [],
         isEmergency: data.is_emergency || false
       };
