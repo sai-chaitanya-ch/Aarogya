@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
-  Crop, RotateCw, Sparkles, Check, Edit2, AlertTriangle, 
-  ArrowLeft, FileText, Upload, Plus, Trash2, SlidersHorizontal, Camera
+  Crop, RotateCw, Sparkles, Edit2, AlertTriangle, 
+  ArrowLeft, Upload, Camera, Plus, Trash2, SlidersHorizontal 
 } from 'lucide-react';
-import { MedicalRecord, Language, ExtractedMedicine } from '../../types';
+import { MedicalRecord, Language, ExtractedMedicine, ExtractedLabValue } from '../../types';
 import { translations } from '../../data/translations';
-import { analyzeDocument, DocumentAnalysisResult } from '../../services/aiService';
+import { analyzeDocument } from '../../services/aiService';
 import { samplePrescriptionSvg, sampleCBCReportSvg } from '../../data/mockData';
 import { processDocumentWithBackend } from '../../services/api';
 import { LiveCameraScanner } from './LiveCameraScanner';
@@ -24,23 +24,29 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   onViewSummary
 }) => {
   const t = translations[language];
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Document selection mode
-  const [selectedPreset, setSelectedPreset] = useState<'prescription' | 'cbc' | 'custom'>('prescription');
+  // Document selection mode: 'custom' | 'prescription' | 'cbc'
+  const [selectedPreset, setSelectedPreset] = useState<'custom' | 'prescription' | 'cbc'>('prescription');
+  const [customFileUrl, setCustomFileUrl] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showCropModal, setShowCropModal] = useState(false);
   const [showLiveCamera, setShowLiveCamera] = useState(false);
   const [customCapturedImage, setCustomCapturedImage] = useState<string | null>(null);
-  const [customFile, setCustomFile] = useState<File | null>(null);
+  const [_customFile, setCustomFile] = useState<File | null>(null);
   const [rotation, setRotation] = useState(0);
   const [contrastEnhanced, setContrastEnhanced] = useState(false);
 
   // Extracted fields editable state
   const [patientName, setPatientName] = useState('Chaitanya');
   const [visitDate, setVisitDate] = useState('14 Sep 2024');
-  const [doctorName, setDoctorName] = useState(selectedPreset === 'prescription' ? 'Dr. S. Kumar' : 'Dr. Ananya Rao');
-  const [facilityName, setFacilityName] = useState(selectedPreset === 'prescription' ? 'City Care Clinic' : 'City Care Lab');
+  const [doctorName, setDoctorName] = useState('Dr. S. Kumar');
+  const [facilityName, setFacilityName] = useState('City Care Clinic');
+  const [docType, setDocType] = useState<'Prescription' | 'Lab Report' | 'Discharge Summary'>('Prescription');
 
   const [medicines, setMedicines] = useState<ExtractedMedicine[]>([
     { id: '1', name: 'Amlodipine 5 mg', dosage: '5 mg', frequency: '1 tab daily (OD)', duration: '30 days', timing: 'morning' },
@@ -48,16 +54,33 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
     { id: '3', name: 'Atorvastatin 10 mg', dosage: '10 mg', frequency: '1 tab daily (OD)', duration: '30 days', timing: 'night' },
   ]);
 
+  const [labValues, setLabValues] = useState<ExtractedLabValue[]>([]);
+  const [aiSummary, setAiSummary] = useState<any>({
+    en: "Prescription by Dr. S. Kumar includes 3 medicines for blood pressure, blood sugar, and cholesterol management."
+  });
+  const [reviewAlerts, setReviewAlerts] = useState<string[]>([
+    "Metformin dosage is marked strictly after food. Please verify with your doctor before altering."
+  ]);
+
   const handleSelectPreset = (preset: 'prescription' | 'cbc') => {
     setSelectedPreset(preset);
+    setCustomFileUrl(null);
+    setUploadedFile(null);
     setIsProcessing(true);
+
     processDocumentWithBackend(null, preset, patientName).then(({ record }) => {
       setPatientName(record.patientName);
       setVisitDate(record.visitDate);
       setDoctorName(record.doctorName);
       setFacilityName(record.facilityName);
+      setDocType(record.documentType as any);
+      setAiSummary(record.aiSummary);
+      setReviewAlerts(record.keyFindings || []);
       if (record.medicines && record.medicines.length > 0) {
         setMedicines(record.medicines);
+      }
+      if (record.labValues && record.labValues.length > 0) {
+        setLabValues(record.labValues);
       }
       setIsProcessing(false);
     }).catch(() => {
@@ -67,35 +90,70 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       setDoctorName(res.doctorName);
       setFacilityName(res.facilityName);
       setMedicines(res.medicines);
+      setLabValues(res.labValues);
+      setAiSummary(res.aiExplanation);
+      setReviewAlerts(res.reviewAlerts);
+      setIsProcessing(false);
+    });
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadedFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setCustomFileUrl(objectUrl);
+    setSelectedPreset('custom');
+    setIsProcessing(true);
+
+    processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
+      setPatientName(record.patientName || patientName);
+      setVisitDate(record.visitDate || 'Today');
+      setDoctorName(record.doctorName || 'Consulting Physician');
+      setFacilityName(record.facilityName || 'Care Center');
+      setDocType(record.documentType as any);
+      setAiSummary(record.aiSummary);
+      setReviewAlerts(record.keyFindings || []);
+      if (record.medicines && record.medicines.length > 0) {
+        setMedicines(record.medicines);
+      }
+      if (record.labValues && record.labValues.length > 0) {
+        setLabValues(record.labValues);
+      }
+      setIsProcessing(false);
+    }).catch(() => {
       setIsProcessing(false);
     });
   };
 
   const handleSave = () => {
-    const analysis = analyzeDocument(selectedPreset, patientName);
+    const activeFileUrl = customFileUrl || (selectedPreset === 'prescription' ? samplePrescriptionSvg : sampleCBCReportSvg);
     const newRecord: MedicalRecord = {
       id: `rec_${Date.now()}`,
-      title: selectedPreset === 'prescription' ? 'Prescription - Dr. S. Kumar' : 'Complete Blood Count (CBC)',
-      documentType: selectedPreset === 'prescription' ? 'Prescription' : 'Lab Report',
+      title: `${docType} - ${doctorName}`,
+      documentType: docType,
       patientName,
       visitDate,
       doctorName,
       facilityName,
-      specialty: selectedPreset === 'prescription' ? 'General Medicine' : 'Pathology',
-      originalFileUrl: selectedPreset === 'prescription' ? samplePrescriptionSvg : sampleCBCReportSvg,
-      originalFileName: selectedPreset === 'prescription' ? 'Prescription_DrKumar.jpg' : 'CBC_LabReport.pdf',
+      specialty: docType === 'Prescription' ? 'General Medicine' : 'Pathology',
+      originalFileUrl: activeFileUrl,
+      originalFileName: uploadedFile ? uploadedFile.name : (selectedPreset === 'prescription' ? 'Prescription_DrKumar.jpg' : 'CBC_LabReport.pdf'),
       status: isEditing ? 'corrected' : 'verified',
-      aiSummary: analysis.aiExplanation,
-      keyFindings: analysis.reviewAlerts,
-      medicines: selectedPreset === 'prescription' ? medicines : [],
-      labValues: selectedPreset === 'cbc' ? analysis.labValues : [],
-      followUpDate: selectedPreset === 'prescription' ? '2024-09-21' : undefined,
+      aiSummary: aiSummary,
+      keyFindings: reviewAlerts,
+      medicines: docType === 'Prescription' ? medicines : [],
+      labValues: docType === 'Lab Report' ? labValues : [],
+      followUpDate: docType === 'Prescription' ? '2024-09-21' : undefined,
       createdAt: new Date().toISOString()
     };
 
     onSaveRecord(newRecord);
     onViewSummary(newRecord);
   };
+
+  const activeImageSrc = customFileUrl || (selectedPreset === 'prescription' ? samplePrescriptionSvg : sampleCBCReportSvg);
 
   return (
     <div className="flex-1 p-4 bg-[#f8faf9] flex flex-col justify-between">
@@ -111,12 +169,37 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
             </button>
             <h2 className="text-sm font-extrabold text-slate-800">{t.scanAndReview}</h2>
           </div>
-          <button
-            onClick={() => handleSelectPreset(selectedPreset === 'prescription' ? 'cbc' : 'prescription')}
-            className="text-xs font-bold text-teal-700 hover:text-teal-900 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200/50"
-          >
-            {t.retake}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept="image/*,application/pdf"
+              className="hidden"
+            />
+            <input
+              type="file"
+              ref={cameraInputRef}
+              onChange={handleFileChange}
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+            />
+            <button
+              onClick={() => cameraInputRef.current?.click()}
+              className="p-1.5 rounded-lg text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200/50"
+              title="Camera Scan"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1 text-xs font-bold text-teal-700 hover:text-teal-900 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200/50"
+            >
+              <Upload className="w-3 h-3" />
+              <span>Upload</span>
+            </button>
+          </div>
         </div>
 
         {/* Camera & File Upload Quick Controls */}
@@ -141,8 +224,10 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                 const file = e.target.files?.[0];
                 if (file) {
                   setCustomFile(file);
+                  setUploadedFile(file);
                   const url = URL.createObjectURL(file);
                   setCustomCapturedImage(url);
+                  setCustomFileUrl(url);
                   setSelectedPreset('custom');
                   setIsProcessing(true);
                   processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
@@ -152,6 +237,9 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                     setFacilityName(record.facilityName);
                     if (record.medicines && record.medicines.length > 0) {
                       setMedicines(record.medicines);
+                    }
+                    if (record.labValues && record.labValues.length > 0) {
+                      setLabValues(record.labValues);
                     }
                     setIsProcessing(false);
                   }).catch(() => {
@@ -163,8 +251,8 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           </label>
         </div>
 
-        {/* Preset Selector Pill for Testing */}
-        <div className="mt-2 flex items-center justify-between bg-slate-200/70 p-1 rounded-xl text-xs font-semibold">
+        {/* Source Selector Pills */}
+        <div className="mt-2 flex items-center justify-between bg-slate-200/70 p-1 rounded-xl text-xs font-semibold gap-1">
           <button
             type="button"
             onClick={() => {
@@ -172,11 +260,11 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
               setCustomFile(null);
               handleSelectPreset('prescription');
             }}
-            className={`flex-1 py-1.5 rounded-lg transition-all ${
-              selectedPreset === 'prescription' ? 'bg-white text-teal-900 shadow-xs' : 'text-slate-600'
+            className={`flex-1 py-1.5 rounded-lg transition-all text-center ${
+              selectedPreset === 'prescription' ? 'bg-white text-teal-900 shadow-xs font-bold' : 'text-slate-600'
             }`}
           >
-            Prescription (Dr. Kumar)
+            Prescription
           </button>
           <button
             type="button"
@@ -185,12 +273,23 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
               setCustomFile(null);
               handleSelectPreset('cbc');
             }}
-            className={`flex-1 py-1.5 rounded-lg transition-all ${
-              selectedPreset === 'cbc' ? 'bg-white text-teal-900 shadow-xs' : 'text-slate-600'
+            className={`flex-1 py-1.5 rounded-lg transition-all text-center ${
+              selectedPreset === 'cbc' ? 'bg-white text-teal-900 shadow-xs font-bold' : 'text-slate-600'
             }`}
           >
-            Lab Report (CBC)
+            Lab Report
           </button>
+          {(customCapturedImage || customFileUrl || uploadedFile) && (
+            <button
+              type="button"
+              onClick={() => setSelectedPreset('custom')}
+              className={`flex-1 py-1.5 rounded-lg transition-all text-center truncate px-1 ${
+                selectedPreset === 'custom' ? 'bg-white text-teal-900 shadow-xs font-bold' : 'text-slate-600'
+              }`}
+            >
+              Custom File
+            </button>
+          )}
         </div>
 
         {/* Scanned Image Preview Container */}
@@ -202,28 +301,14 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
               filter: contrastEnhanced ? 'contrast(135%) brightness(95%)' : 'none'
             }}
           >
-            {customCapturedImage ? (
-              <img
-                src={customCapturedImage}
-                alt="Captured Medical Document"
-                className="max-h-full max-w-full object-contain rounded-lg"
-              />
-            ) : selectedPreset === 'prescription' ? (
-              <img
-                src={samplePrescriptionSvg}
-                alt="Prescription"
-                className="max-h-full max-w-full object-contain rounded-lg"
-              />
-            ) : (
-              <img
-                src={sampleCBCReportSvg}
-                alt="CBC Lab Report"
-                className="max-h-full max-w-full object-contain rounded-lg"
-              />
-            )}
+            <img
+              src={customCapturedImage || activeImageSrc}
+              alt="Medical Document Preview"
+              className="max-h-full max-w-full object-contain rounded-lg"
+            />
           </div>
 
-          {/* Crop & Adjust Overlay Button matching mockup */}
+          {/* Crop & Adjust Overlay Button */}
           <button
             onClick={() => setShowCropModal(true)}
             className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-slate-900/80 hover:bg-slate-900 text-white rounded-full text-xs font-semibold backdrop-blur-md shadow-md transition-all active:scale-95"
@@ -236,7 +321,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           {isProcessing && (
             <div className="absolute inset-0 bg-white/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2">
               <Sparkles className="w-6 h-6 text-teal-600 animate-spin" />
-              <span className="text-xs font-bold text-teal-900">Running Medical OCR & Field Extraction...</span>
+              <span className="text-xs font-bold text-teal-900">Running Gemini / Groq OCR Extraction...</span>
             </div>
           )}
         </div>
@@ -293,7 +378,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           </div>
 
           {/* Extracted Medicines Table (for Prescriptions) */}
-          {selectedPreset === 'prescription' && (
+          {docType === 'Prescription' && (
             <div className="mt-3">
               <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2">
                 {t.medicinesList}
@@ -344,39 +429,41 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           )}
 
           {/* Extracted Lab Values (for Lab Reports) */}
-          {selectedPreset === 'cbc' && (
+          {docType === 'Lab Report' && (
             <div className="mt-3">
               <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2">
                 Key Extracted Tests
               </div>
               <div className="space-y-1.5 text-xs">
-                <div className="flex items-center justify-between p-2 rounded-lg bg-red-50 border border-red-100">
-                  <span className="font-bold text-red-900">Hemoglobin (Hb)</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-extrabold text-red-600">10.8 g/dL</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-200 text-red-800">LOW</span>
+                {labValues.length > 0 ? (
+                  labValues.map(lv => (
+                    <div key={lv.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-100">
+                      <span className="font-medium text-slate-800">{lv.testName}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-slate-900">{lv.value}</span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          lv.status === 'low' ? 'bg-red-200 text-red-800' : lv.status === 'high' ? 'bg-amber-200 text-amber-800' : 'bg-emerald-200 text-emerald-800'
+                        }`}>
+                          {lv.status.toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-red-50 border border-red-100">
+                    <span className="font-bold text-red-900">Hemoglobin (Hb)</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-extrabold text-red-600">10.8 g/dL</span>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-200 text-red-800">LOW</span>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-50 border border-emerald-100">
-                  <span className="font-medium text-slate-800">WBC Count</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-slate-800">6,800 /uL</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-800">NORMAL</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-50 border border-emerald-100">
-                  <span className="font-medium text-slate-800">Platelet Count</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-slate-800">2.1 lakh /uL</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-800">NORMAL</span>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Review Before Saving Warning Card matching mockup */}
+        {/* Review Before Saving Warning Card */}
         <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-200/70 flex items-start gap-2.5">
           <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
@@ -416,7 +503,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                 className="max-h-full max-w-full flex items-center justify-center"
               >
                 <img
-                  src={selectedPreset === 'prescription' ? samplePrescriptionSvg : sampleCBCReportSvg}
+                  src={activeImageSrc}
                   alt="Crop preview"
                   className="max-h-36 object-contain"
                 />

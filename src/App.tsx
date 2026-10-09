@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  UserProfile, Language, MedicalRecord, ActiveMedicationReminder, 
+  Language, MedicalRecord, 
   Appointment, Doctor 
 } from './types';
 import { Header } from './components/common/Header';
@@ -191,6 +191,7 @@ function AarogyaAppContent() {
               onPublishPrescriptionToPatient={(publishedRecord) => {
                 handleSaveScannedRecord(publishedRecord);
               }}
+              appointments={appointments}
             />
           ) : (
             /* PATIENT WORKFLOW */
@@ -304,7 +305,7 @@ function AarogyaAppContent() {
                 <FindDoctor
                   language={language}
                   onBack={() => setPatientView('home')}
-                  onBookDoctor={(doc: Doctor) => {
+                  onBookDoctor={(doc: Doctor, bookingDetails) => {
                     const newApt: Appointment = {
                       id: `apt_${Date.now()}`,
                       patientName: user.name,
@@ -312,9 +313,9 @@ function AarogyaAppContent() {
                       doctorName: doc.name,
                       doctorSpecialty: doc.specialty,
                       hospitalClinic: doc.clinicName,
-                      date: 'Tomorrow, 10 Oct 2026',
-                      time: '11:00 AM',
-                      type: 'In-person',
+                      date: bookingDetails?.date || 'Tomorrow, 10 Oct 2026',
+                      time: bookingDetails?.time || '11:00 AM',
+                      type: bookingDetails?.type || 'In-person',
                       status: 'upcoming'
                     };
                     bookAppointment(newApt);

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  ArrowLeft, Plus, CheckCircle2, Clock, AlertCircle, 
-  Check, X, Pill, Sparkles, RefreshCw, ChevronRight 
+  ArrowLeft, Plus, Check, X, Pill 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ActiveMedicationReminder, Language } from '../../types';
@@ -16,7 +15,7 @@ interface MedicinesRemindersProps {
 
 export const MedicinesReminders: React.FC<MedicinesRemindersProps> = ({
   reminders,
-  language,
+  language: _language,
   onBack,
   onToggleStatus,
   onAddReminder
@@ -40,7 +39,7 @@ export const MedicinesReminders: React.FC<MedicinesRemindersProps> = ({
         origin: { y: 0.7 },
         colors: ['#0c7c61', '#149575', '#82ceb4', '#10b981']
       });
-    } catch (e) {
+    } catch {
       // safe fallback
     }
   };

@@ -1,25 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
-  Users, Calendar, FileText, MessageSquare, Plus, Search, 
-  Video, Phone, ShieldCheck, MapPin, Clock, ArrowLeft, 
-  Send, Upload, CheckCircle2, AlertCircle, Trash2, Edit3, 
-  Camera, Landmark, User, Bell, ChevronRight, Stethoscope 
+  Users, Calendar, MessageSquare, Plus, Search, 
+  Phone, ShieldCheck, ArrowLeft, 
+  Send, Upload, Trash2, Edit3, 
+  Landmark, User, ChevronRight, Stethoscope 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Doctor, PatientListItem, MedicalRecord, ExtractedMedicine } from '../../types';
+import { PatientListItem, MedicalRecord, ExtractedMedicine, Appointment } from '../../types';
 import { doctorPortalPatients, initialMedicalRecords } from '../../data/mockData';
 
 interface DoctorPortalProps {
   onSwitchToPatient: () => void;
   onPublishPrescriptionToPatient?: (record: MedicalRecord) => void;
+  appointments?: Appointment[];
 }
 
 export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   onSwitchToPatient,
-  onPublishPrescriptionToPatient
+  onPublishPrescriptionToPatient,
+  appointments = []
 }) => {
   // Navigation tabs for doctor: home | patients | appointments | messages | profile
   const [activeTab, setActiveTab] = useState<'home' | 'patients' | 'appointments' | 'messages' | 'profile'>('home');
+  const fileUploadRef = useRef<HTMLInputElement>(null);
   
   // Sub-views
   const [selectedPatient, setSelectedPatient] = useState<PatientListItem | null>(null);
@@ -27,6 +30,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   const [showCreatePrescription, setShowCreatePrescription] = useState(false);
   const [showAddPatientModal, setShowAddPatientModal] = useState(false);
   const [prescriptionTab, setPrescriptionTab] = useState<'write' | 'upload'>('write');
+  const [uploadedRxImage, setUploadedRxImage] = useState<string | null>(null);
 
   // Patients state
   const [patients, setPatients] = useState<PatientListItem[]>(doctorPortalPatients);
@@ -114,7 +118,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
         origin: { y: 0.6 },
         colors: ['#0c7c61', '#149575', '#3b82f6']
       });
-    } catch (e) {}
+    } catch {}
 
     alert(`Prescription published successfully and synchronized with ${selectedPatient.name}'s Aarogya app!`);
     setShowCreatePrescription(false);
@@ -364,9 +368,36 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
               />
             </div>
 
+            {/* Filter Pills */}
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none text-xs font-semibold">
+              {[
+                { id: 'all' as const, label: 'All' },
+                { id: 'followup' as const, label: 'Follow-up' },
+                { id: 'recent' as const, label: 'Recent / New' },
+                { id: 'chronic' as const, label: 'Chronic' }
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setPatientFilter(f.id)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                    patientFilter === f.id ? 'bg-teal-700 text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
             {/* Patient Cards List */}
             <div className="space-y-2">
-              {patients.map(p => (
+              {patients.filter(p => {
+                const matchesSearch = p.name.toLowerCase().includes(patientSearch.toLowerCase()) || p.phone.includes(patientSearch);
+                const matchesFilter = patientFilter === 'all' ||
+                  (patientFilter === 'followup' && p.tag === 'Follow-up') ||
+                  (patientFilter === 'recent' && (p.tag === 'New' || p.lastVisit.includes('Today'))) ||
+                  (patientFilter === 'chronic' && (p.tag === 'Chronic' || p.chronicCondition));
+                return matchesSearch && matchesFilter;
+              }).map(p => (
                 <div
                   key={p.id}
                   onClick={() => setSelectedPatient(p)}
@@ -547,7 +578,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                   <span className="text-xs font-bold text-teal-900 block">Upload Document or Prescriptions</span>
                   <span className="text-[10px] text-slate-500">PDF, JPG, PNG (Max 10MB)</span>
                 </div>
-                {initialMedicalRecords.slice(0, 2).map(r => (
+                {initialMedicalRecords.slice(0, 2).map((r: MedicalRecord) => (
                   <div key={r.id} className="p-2.5 bg-white rounded-xl border flex items-center justify-between text-xs">
                     <div>
                       <div className="font-bold text-slate-800">{r.title}</div>
@@ -601,45 +632,126 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
               </button>
             </div>
 
-            {/* Add Medicines Form */}
-            <div className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-xs space-y-3">
-              <label className="font-bold text-slate-800 block">Add Medicines</label>
-              
-              <div className="flex items-center gap-2">
+            {/* Write vs Upload Content */}
+            {prescriptionTab === 'upload' ? (
+              <div className="bg-white rounded-2xl p-4 border border-dashed border-teal-300 text-center space-y-3">
                 <input
-                  type="text"
-                  value={newMedName}
-                  onChange={e => setNewMedName(e.target.value)}
-                  placeholder="Search medicine (e.g. Paracetamol 650mg)"
-                  className="flex-1 px-3 py-2 border rounded-xl outline-none focus:border-teal-700 text-xs"
+                  type="file"
+                  ref={fileUploadRef}
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setUploadedRxImage(URL.createObjectURL(file));
+                    }
+                  }}
                 />
-                <button
-                  onClick={handleAddMedicineToRx}
-                  className="px-3 py-2 bg-teal-700 text-white font-bold rounded-xl hover:bg-teal-800 flex items-center gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add</span>
-                </button>
-              </div>
-
-              {/* Medicines List */}
-              <div className="space-y-2 pt-1">
-                {prescriptionMedicines.map((med, index) => (
-                  <div key={med.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-slate-800">{index + 1}. {med.name}</div>
-                      <div className="text-[11px] text-slate-500">{med.frequency}</div>
-                    </div>
+                {uploadedRxImage ? (
+                  <div className="space-y-2">
+                    <img src={uploadedRxImage} alt="Handwritten Rx" className="max-h-40 mx-auto rounded-xl object-contain border" />
                     <button
-                      onClick={() => setPrescriptionMedicines(prescriptionMedicines.filter(m => m.id !== med.id))}
-                      className="p-1 text-red-400 hover:text-red-600"
+                      type="button"
+                      onClick={() => {
+                        setPrescriptionMedicines(prev => [
+                          ...prev,
+                          { id: String(Date.now()), name: 'Amoxicillin 500 mg', dosage: '500 mg', frequency: '1 tab TDS - 5 days', duration: '5 days', timing: 'morning' }
+                        ]);
+                        alert("Medical OCR extracted prescription items from handwritten note!");
+                      }}
+                      className="px-3 py-1.5 bg-teal-700 text-white font-bold text-xs rounded-xl hover:bg-teal-800"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      Extract Medicines via AI OCR
                     </button>
                   </div>
-                ))}
+                ) : (
+                  <div className="py-6 space-y-2">
+                    <Upload className="w-8 h-8 text-teal-600 mx-auto" />
+                    <div className="font-bold text-xs text-slate-800">Upload Handwritten Prescription</div>
+                    <p className="text-[11px] text-slate-500">Scan physical paper prescription or clinic note to digitize with AI OCR</p>
+                    <button
+                      type="button"
+                      onClick={() => fileUploadRef.current?.click()}
+                      className="px-4 py-2 bg-teal-50 text-teal-800 font-bold text-xs rounded-xl hover:bg-teal-100 border border-teal-200"
+                    >
+                      Select Document Image
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
+            ) : (
+              /* Add Medicines Form */
+              <div className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-xs space-y-3">
+                <label className="font-bold text-slate-800 block">Add Medicines</label>
+                
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newMedName}
+                      onChange={e => setNewMedName(e.target.value)}
+                      placeholder="Medicine name (e.g. Paracetamol 650mg)"
+                      className="flex-1 px-3 py-2 border rounded-xl outline-none focus:border-teal-700 text-xs"
+                    />
+                    <button
+                      onClick={handleAddMedicineToRx}
+                      className="px-3 py-2 bg-teal-700 text-white font-bold rounded-xl hover:bg-teal-800 flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-semibold block mb-0.5">Dosage Frequency</span>
+                      <select
+                        value={newMedDose}
+                        onChange={e => setNewMedDose(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border rounded-xl outline-none text-xs"
+                      >
+                        <option value="1 tab OD (Morning)">1 tab OD (Morning)</option>
+                        <option value="1 tab BD (After food)">1 tab BD (After food)</option>
+                        <option value="1 tab TDS">1 tab TDS</option>
+                        <option value="1 tab HS (Bedtime)">1 tab HS (Bedtime)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-semibold block mb-0.5">Duration</span>
+                      <select
+                        value={newMedDuration}
+                        onChange={e => setNewMedDuration(e.target.value)}
+                        className="w-full p-2 bg-slate-50 border rounded-xl outline-none text-xs"
+                      >
+                        <option value="3 days">3 days</option>
+                        <option value="5 days">5 days</option>
+                        <option value="7 days">7 days</option>
+                        <option value="14 days">14 days</option>
+                        <option value="30 days">30 days</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Medicines List */}
+                <div className="space-y-2 pt-1">
+                  {prescriptionMedicines.map((med, index) => (
+                    <div key={med.id} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-slate-800">{index + 1}. {med.name}</div>
+                        <div className="text-[11px] text-slate-500">{med.frequency}</div>
+                      </div>
+                      <button
+                        onClick={() => setPrescriptionMedicines(prescriptionMedicines.filter(m => m.id !== med.id))}
+                        className="p-1 text-red-400 hover:text-red-600"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Additional Instructions */}
             <div className="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-xs space-y-2">
@@ -758,6 +870,18 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
           <div className="space-y-3">
             <h2 className="text-sm font-extrabold text-slate-900">Appointments Schedule</h2>
             <div className="space-y-2 text-xs">
+              {appointments && appointments.length > 0 && appointments.map(apt => (
+                <div key={apt.id} className="p-3 bg-teal-50/70 rounded-2xl border border-teal-200 shadow-xs flex items-center justify-between">
+                  <div>
+                    <div className="font-bold text-slate-900">{apt.patientName}</div>
+                    <div className="text-[11px] text-teal-800">{apt.date} at {apt.time} · {apt.type}</div>
+                  </div>
+                  <span className="px-2 py-0.5 bg-teal-600 text-white rounded-full font-bold text-[10px]">
+                    Patient Booked
+                  </span>
+                </div>
+              ))}
+
               <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
                 <div>
                   <div className="font-bold text-slate-900">Ramesh Kumar (28 Y)</div>

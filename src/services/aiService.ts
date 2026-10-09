@@ -1,4 +1,4 @@
-import { MedicalRecord, ExtractedMedicine, ExtractedLabValue, Language, ChatMessage } from '../types';
+import { MedicalRecord, ExtractedMedicine, ExtractedLabValue, Language } from '../types';
 
 export interface DocumentAnalysisResult {
   documentType: 'Prescription' | 'Lab Report' | 'Discharge Summary' | 'X-Ray / Imaging';
@@ -127,7 +127,7 @@ Medicines extracted:
 export function generateAarogyaChatResponse(
   query: string,
   language: Language,
-  records: MedicalRecord[]
+  _records: MedicalRecord[]
 ): {
   text: string;
   citations: { documentTitle: string; documentDate: string; recordId: string }[];

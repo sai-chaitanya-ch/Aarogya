@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
-  ArrowLeft, User, ShieldCheck, Heart, AlertCircle, 
-  MapPin, Phone, Landmark, CheckCircle2, Edit2, Globe 
+  ArrowLeft, Heart, AlertCircle, 
+  MapPin, Phone, Landmark, CheckCircle2, Edit2, Globe, ShieldCheck 
 } from 'lucide-react';
 import { UserProfile, Language } from '../../types';
 
@@ -90,9 +90,21 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
             </div>
 
             <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-              <span className="font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded">
-                Blood Group: {user.bloodGroup}
-              </span>
+              {isEditing ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] text-slate-500">Blood Group:</span>
+                  <input
+                    type="text"
+                    value={bloodGroup}
+                    onChange={e => setBloodGroup(e.target.value)}
+                    className="w-16 font-bold text-rose-600 bg-rose-50 px-1 py-0.5 rounded border border-rose-200 outline-none"
+                  />
+                </div>
+              ) : (
+                <span className="font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded">
+                  Blood Group: {user.bloodGroup}
+                </span>
+              )}
             </div>
           </div>
         </div>

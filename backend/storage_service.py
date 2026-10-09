@@ -1,15 +1,24 @@
 import os
-from typing import Optional
-from supabase import create_client, Client
+from typing import Optional, Any
+try:
+    from supabase import create_client, Client
+except ImportError:
+    create_client = None
+    Client = None
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-
-def get_supabase_client() -> Optional[Client]:
+def get_supabase_client() -> Optional[Any]:
     """Initializes Supabase Client using backend credentials."""
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    if not create_client:
         return None
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    supabase_url = os.getenv("SUPABASE_URL", "")
+    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not supabase_url or not service_role_key:
+        return None
+    try:
+        return create_client(supabase_url, service_role_key)
+    except Exception as e:
+        print(f"Supabase client init error: {e}")
+        return None
 
 def upload_private_medical_document(
     user_id: str,
@@ -23,10 +32,10 @@ def upload_private_medical_document(
     Returns storage path.
     """
     supabase = get_supabase_client()
-    if not supabase:
-        return f"{user_id}/{file_name}"
-
     storage_path = f"{user_id}/{file_name}"
+    if not supabase:
+        return storage_path
+
     try:
         supabase.storage.from_("medical-records").upload(
             path=storage_path,
@@ -35,7 +44,7 @@ def upload_private_medical_document(
         )
         return storage_path
     except Exception as e:
-        print(f"Supabase upload error: {e}")
+        print(f"Supabase upload notice: {e}")
         return storage_path
 
 def generate_signed_url(storage_path: str, expires_in_seconds: int = 3600) -> str:
@@ -46,7 +55,6 @@ def generate_signed_url(storage_path: str, expires_in_seconds: int = 3600) -> st
     """
     supabase = get_supabase_client()
     if not supabase:
-        # Fallback placeholder when credentials not configured yet
         return f"https://mock-signed-url.aarogya.internal/storage/v1/object/sign/medical-records/{storage_path}?token=mock_token_expires_{expires_in_seconds}s"
 
     try:
@@ -54,7 +62,9 @@ def generate_signed_url(storage_path: str, expires_in_seconds: int = 3600) -> st
             path=storage_path,
             expires_in=expires_in_seconds
         )
-        return res.get("signedURL") or res.get("signedUrl") or ""
+        if isinstance(res, dict):
+            return res.get("signedURL") or res.get("signedUrl") or ""
+        return str(res)
     except Exception as e:
         print(f"Error generating signed URL: {e}")
         return ""

@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { 
-  ArrowLeft, Calendar, Clock, Video, MapPin, 
-  Plus, CheckCircle2, XCircle, AlertCircle, ChevronRight 
+  ArrowLeft, Clock, Video, MapPin, Plus 
 } from 'lucide-react';
-import { Appointment, Doctor, Language } from '../../types';
+import { Appointment, Language } from '../../types';
 import { nearbyDoctors } from '../../data/mockData';
 
 interface AppointmentsListProps {
@@ -16,7 +15,7 @@ interface AppointmentsListProps {
 
 export const AppointmentsList: React.FC<AppointmentsListProps> = ({
   appointments,
-  language,
+  language: _language,
   onBack,
   onBookNew,
   onFindDoctor

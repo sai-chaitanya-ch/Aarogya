@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  X, Landmark, ShieldCheck, CheckCircle2, 
+  X, Landmark, CheckCircle2, 
   ExternalLink, QrCode, ArrowRight, Phone, Fingerprint, Hash 
 } from 'lucide-react';
 import { UserProfile } from '../../types';
@@ -20,8 +20,6 @@ export const ABDMConnectionModal: React.FC<ABDMConnectionModalProps> = ({
   onClose,
   onUpdateUser
 }) => {
-  if (!isOpen) return null;
-
   const [step, setStep] = useState<'consent' | 'input' | 'otp' | 'connected'>(
     user.abhaLinked ? 'connected' : 'consent'
   );
@@ -35,6 +33,8 @@ export const ABDMConnectionModal: React.FC<ABDMConnectionModalProps> = ({
 
   const [otp, setOtp] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
+
+  if (!isOpen) return null;
 
   const handleVerifyOtp = () => {
     setIsVerifying(true);

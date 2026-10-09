@@ -1,24 +1,27 @@
 import React, { useState } from 'react';
 import { 
   ArrowLeft, Search, MapPin, Star, ShieldCheck, 
-  Clock, Video, Phone, Calendar, ChevronRight 
+  Video, Calendar 
 } from 'lucide-react';
-import { Doctor, Language, Appointment } from '../../types';
+import { Doctor, Language } from '../../types';
 import { nearbyDoctors } from '../../data/mockData';
 
 interface FindDoctorProps {
   language: Language;
   onBack: () => void;
-  onBookDoctor: (doctor: Doctor) => void;
+  onBookDoctor: (doctor: Doctor, bookingDetails?: { date: string; time: string; type: 'In-person' | 'Teleconsultation' }) => void;
 }
 
 export const FindDoctor: React.FC<FindDoctorProps> = ({
-  language,
   onBack,
   onBookDoctor
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSpecialty, setSelectedSpecialty] = useState('All');
+  const [bookingDoctor, setBookingDoctor] = useState<Doctor | null>(null);
+  const [bookingDate, setBookingDate] = useState('Tomorrow, 10 Oct 2026');
+  const [bookingTime, setBookingTime] = useState('11:00 AM');
+  const [bookingType, setBookingType] = useState<'In-person' | 'Teleconsultation'>('In-person');
 
   const specialties = ['All', 'General Medicine', 'Cardiology', 'Pediatrics', 'Gynecology'];
 
@@ -30,6 +33,21 @@ export const FindDoctor: React.FC<FindDoctorProps> = ({
       doc.specialty.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesSpec && matchesQuery;
   });
+
+  const handleStartBooking = (doc: Doctor, type: 'In-person' | 'Teleconsultation') => {
+    setBookingDoctor(doc);
+    setBookingType(type);
+  };
+
+  const handleConfirmBooking = () => {
+    if (!bookingDoctor) return;
+    onBookDoctor(bookingDoctor, {
+      date: bookingDate,
+      time: bookingTime,
+      type: bookingType
+    });
+    setBookingDoctor(null);
+  };
 
   return (
     <div className="flex-1 p-4 bg-[#f8faf9] flex flex-col justify-between">
@@ -123,14 +141,14 @@ export const FindDoctor: React.FC<FindDoctorProps> = ({
               {/* Action buttons */}
               <div className="pt-2 border-t border-slate-50 flex items-center gap-2">
                 <button
-                  onClick={() => onBookDoctor(doc)}
+                  onClick={() => handleStartBooking(doc, 'In-person')}
                   className="flex-1 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs flex items-center justify-center gap-1 transition-colors shadow-xs"
                 >
                   <Calendar className="w-3.5 h-3.5" />
                   <span>Book Visit</span>
                 </button>
                 <button
-                  onClick={() => onBookDoctor(doc)}
+                  onClick={() => handleStartBooking(doc, 'Teleconsultation')}
                   className="px-3 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 font-bold text-xs flex items-center gap-1 transition-colors border border-teal-200/50"
                 >
                   <Video className="w-3.5 h-3.5" />
@@ -141,6 +159,82 @@ export const FindDoctor: React.FC<FindDoctorProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Interactive Booking Modal */}
+      {bookingDoctor && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900">Confirm Appointment</h3>
+                <p className="text-[11px] text-teal-800 font-semibold">{bookingDoctor.name} ({bookingDoctor.specialty})</p>
+              </div>
+              <button onClick={() => setBookingDoctor(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Consultation Mode</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setBookingType('In-person')}
+                    className={`py-2 rounded-xl font-bold border transition-all ${
+                      bookingType === 'In-person' ? 'bg-teal-700 text-white border-teal-700' : 'bg-slate-50 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    In-person Visit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBookingType('Teleconsultation')}
+                    className={`py-2 rounded-xl font-bold border transition-all ${
+                      bookingType === 'Teleconsultation' ? 'bg-teal-700 text-white border-teal-700' : 'bg-slate-50 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    Teleconsultation
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Appointment Date</label>
+                <input
+                  type="text"
+                  value={bookingDate}
+                  onChange={e => setBookingDate(e.target.value)}
+                  className="w-full p-2 bg-slate-50 border rounded-xl outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Preferred Time</label>
+                <select
+                  value={bookingTime}
+                  onChange={e => setBookingTime(e.target.value)}
+                  className="w-full p-2 bg-slate-50 border rounded-xl outline-none"
+                >
+                  <option value="09:30 AM">09:30 AM</option>
+                  <option value="11:00 AM">11:00 AM</option>
+                  <option value="02:30 PM">02:30 PM</option>
+                  <option value="05:00 PM">05:00 PM</option>
+                </select>
+              </div>
+
+              <div className="p-2.5 bg-teal-50 rounded-xl text-[11px] text-teal-900 border border-teal-200">
+                <strong>Clinic:</strong> {bookingDoctor.clinicName} (₹{bookingDoctor.consultationFee} fee)
+              </div>
+            </div>
+
+            <button
+              onClick={handleConfirmBooking}
+              className="w-full py-3 bg-teal-700 text-white font-bold rounded-2xl hover:bg-teal-800 transition-colors shadow-md shadow-teal-700/20"
+            >
+              Confirm & Schedule
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

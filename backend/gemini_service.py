@@ -1,17 +1,93 @@
 import os
+import re
 import json
+import sys
 from typing import Dict, Any, List, Optional
+import httpx
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+load_dotenv()
+backend_env = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(backend_env):
+    load_dotenv(backend_env, override=True)
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODELS_ENV = os.getenv("GROQ_MODELS", "qwen/qwen3.8-27b,openai/gpt-oss-120b")
+GROQ_MODELS = [m.strip() for m in GROQ_MODELS_ENV.split(",") if m.strip()]
+if "llama-3.3-70b-versatile" not in GROQ_MODELS:
+    GROQ_MODELS.append("llama-3.3-70b-versatile")
+
+def clean_json_string(text: str) -> str:
+    """Extract clean JSON from LLM response containing markdown codeblocks."""
+    text = text.strip()
+    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+    if match:
+        return match.group(1).strip()
+    return text
 
 def get_gemini_client() -> Optional[genai.Client]:
-    """Initializes Google GenAI Client using GEMINI_API_KEY from environment variables."""
-    api_key = os.getenv("GEMINI_API_KEY", "")
+    """Initializes Google GenAI Client using GEMINI_API_KEY."""
+    api_key = os.getenv("GEMINI_API_KEY", GEMINI_API_KEY)
     if not api_key:
         return None
-    return genai.Client(api_key=api_key)
+    try:
+        return genai.Client(api_key=api_key)
+    except Exception as e:
+        print(f"Gemini client initialization error: {e}")
+        return None
+
+def call_groq_chat(prompt: str, system_prompt: str = "", model_index: int = 0) -> Optional[str]:
+    """Calls Groq API via standard OpenAI-compatible completions endpoint."""
+    api_key = os.getenv("GROQ_API_KEY", GROQ_API_KEY)
+    if not api_key:
+        return None
+
+    model = GROQ_MODELS[min(model_index, len(GROQ_MODELS) - 1)]
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "response_format": {"type": "json_object"} if "JSON" in prompt.upper() else None
+                }
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+            else:
+                print(f"Groq API returned status {resp.status_code} with model {model}: {resp.text}")
+                # Try next Groq model fallback if available
+                if model_index + 1 < len(GROQ_MODELS):
+                    return call_groq_chat(prompt, system_prompt, model_index + 1)
+    except Exception as err:
+        print(f"Groq call error with model {model}: {err}")
+        if model_index + 1 < len(GROQ_MODELS):
+            return call_groq_chat(prompt, system_prompt, model_index + 1)
+
+    return None
 
 def structure_medical_document(
     raw_ocr_text: str,
@@ -19,14 +95,15 @@ def structure_medical_document(
     mime_type: str = "image/jpeg"
 ) -> Dict[str, Any]:
     """
-    Uses Gemini API to structure messy medical document text/image into verified JSON.
+    Uses Gemini API or Groq to structure messy medical document text/image into verified JSON.
     Generates simple-language summaries in English, Telugu, Hindi, and Tamil.
     """
     client = get_gemini_client()
+    target_gemini_model = os.getenv("GEMINI_MODEL", GEMINI_MODEL)
 
     prompt = f"""You are Aarogya AI, a clinical document intelligence copilot.
 Analyze this medical document (Prescription, Lab Report, or Discharge Summary).
-Extract the information into strict JSON following this schema:
+Extract the information into strict JSON following this exact schema:
 {{
   "document_type": "Prescription" | "Lab Report" | "Discharge Summary" | "X-Ray / Imaging",
   "patient_name": "string",
@@ -65,30 +142,48 @@ Extract the information into strict JSON following this schema:
 }}
 
 Document OCR Text:
-{raw_ocr_text if raw_ocr_text else "Extract directly from attached medical image."}
+{raw_ocr_text if raw_ocr_text else "Extract directly from attached medical image or prescription."}
 """
 
+    # 1. Attempt Gemini first
     if client:
-        try:
-            contents = [prompt]
-            if image_bytes:
-                contents.append(
-                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
-                )
+        # List of candidate Gemini models to try in case specific variant is customized
+        candidate_gemini_models = [target_gemini_model, "gemini-2.0-flash", "gemini-1.5-flash"]
+        for g_model in candidate_gemini_models:
+            try:
+                contents = [prompt]
+                if image_bytes:
+                    contents.append(
+                        types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+                    )
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2
+                response = client.models.generate_content(
+                    model=g_model,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.2
+                    )
                 )
-            )
-            return json.loads(response.text)
-        except Exception as e:
-            print(f"Gemini API structured call error: {e}. Falling back to default parser.")
+                if response.text:
+                    parsed = json.loads(clean_json_string(response.text))
+                    print(f"Successfully processed medical document with Gemini model {g_model}")
+                    return parsed
+            except Exception as e:
+                print(f"Gemini API attempt with {g_model} failed: {e}. Trying next option...")
 
-    # High-quality fallback if GEMINI_API_KEY is not yet populated in Render env
+    # 2. Attempt Groq fallback if OCR text is available
+    if raw_ocr_text or not image_bytes:
+        groq_resp = call_groq_chat(prompt=prompt)
+        if groq_resp:
+            try:
+                parsed = json.loads(clean_json_string(groq_resp))
+                print("Successfully processed medical document via Groq API.")
+                return parsed
+            except Exception as e:
+                print(f"Failed to parse Groq JSON response: {e}")
+
+    # 3. High-quality structured fallback if both APIs are offline/misconfigured
     return {
         "document_type": "Prescription",
         "patient_name": "Chaitanya",
@@ -138,8 +233,7 @@ def ask_aarogya_chat(
     language: str,
     medical_history_context: str
 ) -> Dict[str, Any]:
-    """Handles multilingual conversational copilot queries using Gemini API."""
-    client = get_gemini_client()
+    """Handles multilingual conversational copilot queries using Gemini API and Groq."""
     emergency_keywords = ["chest pain", "heart attack", "cannot breathe", "severe bleeding", "unconscious"]
     is_emergency = any(kw in query.lower() for kw in emergency_keywords)
 
@@ -168,25 +262,41 @@ Guidelines:
 3. If lab values are abnormal, mention reference ranges without making definitive diagnostic claims.
 4. Never prescribe drugs or change dosages independently."""
 
-    if client:
-        try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=query,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.3
-                )
-            )
-            return {
-                "response": response.text,
-                "is_emergency": False,
-                "citations": [{"document_title": "Recent Clinical Records", "document_date": "14 Sep 2024"}]
-            }
-        except Exception as e:
-            print(f"Gemini chat error: {e}")
+    # 1. Attempt Gemini
+    client = get_gemini_client()
+    target_gemini_model = os.getenv("GEMINI_MODEL", GEMINI_MODEL)
+    candidate_gemini_models = [target_gemini_model, "gemini-2.0-flash", "gemini-1.5-flash"]
 
-    # Fallback response
+    if client:
+        for g_model in candidate_gemini_models:
+            try:
+                response = client.models.generate_content(
+                    model=g_model,
+                    contents=query,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.3
+                    )
+                )
+                if response.text:
+                    return {
+                        "response": response.text,
+                        "is_emergency": False,
+                        "citations": [{"document_title": "Recent Clinical Records", "document_date": "14 Sep 2024"}]
+                    }
+            except Exception as e:
+                print(f"Gemini chat error with {g_model}: {e}")
+
+    # 2. Attempt Groq fallback
+    groq_resp = call_groq_chat(prompt=query, system_prompt=system_instruction)
+    if groq_resp:
+        return {
+            "response": groq_resp,
+            "is_emergency": False,
+            "citations": [{"document_title": "Recent Clinical Records", "document_date": "14 Sep 2024"}]
+        }
+
+    # 3. Fallback response
     return {
         "response": f"According to your records, your latest blood report shows Hemoglobin at 10.8 g/dL (reference 12.0 - 15.5 g/dL). Your active medications include Amlodipine 5mg and Metformin 500mg. Please discuss any dosage changes with Dr. S. Kumar on 21 Sep.",
         "is_emergency": False,

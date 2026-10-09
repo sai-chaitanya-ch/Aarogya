@@ -173,7 +173,7 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return () => {
       client.removeChannel(channel);
     };
-  }, [user.id, isGuestDemo]);
+  }, [user.id, user.name, isGuestDemo]);
 
   const addRecord = async (newRecord: MedicalRecord) => {
     setRecords(prev => [newRecord, ...prev]);

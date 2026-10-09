@@ -13,16 +13,16 @@ export interface BackendProcessResponse {
 }
 
 /**
- * Checks if the FastAPI backend on Render is reachable.
+ * Checks if the FastAPI backend on Render or localhost is reachable.
  */
 export async function checkBackendHealth(): Promise<{ isOnline: boolean; details?: any }> {
   try {
-    const res = await fetch(`${BACKEND_URL}/health`, { method: 'GET', signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${BACKEND_URL}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) });
     if (res.ok) {
       const data = await res.json();
       return { isOnline: true, details: data };
     }
-  } catch (e) {
+  } catch {
     // Backend offline / not yet deployed
   }
   return { isOnline: false };
@@ -30,7 +30,7 @@ export async function checkBackendHealth(): Promise<{ isOnline: boolean; details
 
 /**
  * Sends uploaded medical document to the FastAPI backend.
- * Uses lightweight OCR & Gemini Vision on the backend, saves to private Supabase bucket, and returns signed URL.
+ * Uses lightweight OCR & Gemini Vision/Groq on the backend, saves to private Supabase bucket, and returns signed URL.
  */
 export async function processDocumentWithBackend(
   file: File | null,
@@ -48,7 +48,7 @@ export async function processDocumentWithBackend(
     const res = await fetch(`${BACKEND_URL}/api/documents/process`, {
       method: 'POST',
       body: formData,
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(25000) // 25s to accommodate cold-starts and multimodal vision processing
     });
 
     if (res.ok) {
@@ -65,7 +65,7 @@ export async function processDocumentWithBackend(
         facilityName: d.facility_name || 'Healthcare Facility',
         status: 'verified',
         originalFileUrl: result.signed_url,
-        aiSummary: d.ai_summary || { en: 'Processed via FastAPI backend with Gemini API.' },
+        aiSummary: d.ai_summary || { en: 'Processed via backend with Gemini / Groq AI.' },
         keyFindings: d.review_alerts || [],
         medicines: (d.medicines || []).map((m: any, idx: number) => ({
           id: `m_${idx}`,
@@ -92,7 +92,7 @@ export async function processDocumentWithBackend(
       return { record, signedUrl: result.signed_url };
     }
   } catch (err) {
-    console.info('FastAPI backend not active. Falling back to local OCR & simulation pipeline:', err);
+    console.info('FastAPI backend not responding or timeout reached. Using smart client-side pipeline:', err);
   }
 
   // Graceful fallback to client-side pipeline
@@ -117,7 +117,7 @@ export async function processDocumentWithBackend(
 }
 
 /**
- * Sends chat message to backend (Gemini API) with fallback to local engine.
+ * Sends chat message to backend (Gemini API & Groq) with fallback to local engine.
  */
 export async function sendChatToBackend(
   query: string,
@@ -130,7 +130,7 @@ export async function sendChatToBackend(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, language, context: contextSummary }),
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(20000)
     });
 
     if (res.ok) {
@@ -141,8 +141,8 @@ export async function sendChatToBackend(
         isEmergency: data.is_emergency || false
       };
     }
-  } catch (e) {
-    // fallback
+  } catch {
+    // Backend fallback
   }
 
   const localRes = generateAarogyaChatResponse(query, language, records);

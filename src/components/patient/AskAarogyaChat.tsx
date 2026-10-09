@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Mic, MicOff, Send, Sparkles, Volume2, 
-  FileText, AlertCircle, RefreshCw, Globe, ChevronRight 
+  ArrowLeft, Mic, Send, Sparkles, Volume2, 
+  FileText, AlertCircle 
 } from 'lucide-react';
 import { MedicalRecord, Language, ChatMessage } from '../../types';
 import { generateAarogyaChatResponse } from '../../services/aiService';
@@ -56,12 +56,6 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     scrollToBottom();
   }, [messages, isTyping]);
 
-  useEffect(() => {
-    if (initialPrompt) {
-      handleSendMessage(initialPrompt);
-    }
-  }, []);
-
   const handleSendMessage = (textToSend?: string) => {
     const query = (textToSend || inputText).trim();
     if (!query) return;
@@ -102,6 +96,13 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
       setIsTyping(false);
     });
   };
+
+  useEffect(() => {
+    if (initialPrompt) {
+      handleSendMessage(initialPrompt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Web Speech API Voice Recognition
   const toggleSpeechRecognition = () => {

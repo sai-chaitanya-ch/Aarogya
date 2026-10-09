@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Lock, Mail, User, ShieldCheck, Stethoscope, ArrowRight } from 'lucide-react';
+import { X, Lock, Mail, User, Stethoscope, ArrowRight } from 'lucide-react';
 import { useAuth, UserRole } from '../../context/AuthContext';
 import { AarogyaLogo } from '../common/AarogyaLogo';
 
@@ -9,8 +9,6 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
-
   const { signInWithEmail, signUpWithEmail, signInWithGoogle, continueAsGuest, isLoading } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [selectedRole, setSelectedRole] = useState<UserRole>('patient');
@@ -18,6 +16,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -35,7 +35,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch (e) {}
+      } catch {
+        return initialUserProfile;
+      }
     }
     return initialUserProfile;
   });
@@ -43,6 +45,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
   const [isGuestDemo, setIsGuestDemo] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  const fetchSupabaseProfile = async (userId: string) => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (data && !error) {
+        setUser(prev => ({
+          ...prev,
+          id: data.id,
+          name: data.full_name || prev.name,
+          bloodGroup: data.blood_group || prev.bloodGroup,
+          location: data.location || prev.location,
+          phone: data.phone || prev.phone,
+          allergies: data.allergies || prev.allergies,
+          conditions: data.conditions || prev.conditions,
+          preferredLanguage: (data.preferred_language as Language) || prev.preferredLanguage
+        }));
+      }
+    } catch (_e) {
+      console.warn('Failed to fetch profile from Supabase:', _e);
+    }
+  };
 
   // Sync to local storage
   useEffect(() => {
@@ -79,33 +108,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       subscription?.unsubscribe();
     };
   }, []);
-
-  const fetchSupabaseProfile = async (userId: string) => {
-    if (!supabase) return;
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (data && !error) {
-        setUser(prev => ({
-          ...prev,
-          id: data.id,
-          name: data.full_name || prev.name,
-          bloodGroup: data.blood_group || prev.bloodGroup,
-          location: data.location || prev.location,
-          phone: data.phone || prev.phone,
-          allergies: data.allergies || prev.allergies,
-          conditions: data.conditions || prev.conditions,
-          preferredLanguage: (data.preferred_language as Language) || prev.preferredLanguage
-        }));
-      }
-    } catch (e) {
-      console.warn('Failed to fetch profile from Supabase:', e);
-    }
-  };
 
   const updateUserProfile = async (updated: Partial<UserProfile>) => {
     setUser(prev => {

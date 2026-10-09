@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   MessageSquare, Camera, FolderOpen, Pill, Calendar, 
-  Stethoscope, Landmark, ChevronRight, Bell, Sparkles, CheckCircle2 
+  Stethoscope, Landmark, ChevronRight, Bell, CheckCircle2 
 } from 'lucide-react';
 import { UserProfile, MedicalRecord, ActiveMedicationReminder, Appointment, Language } from '../../types';
 import { translations } from '../../data/translations';

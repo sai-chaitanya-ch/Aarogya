@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   ArrowLeft, MoreVertical, Sparkles, AlertTriangle, 
-  CheckCircle2, TrendingUp, Volume2, MessageSquare, Send, Calendar 
+  CheckCircle2, Volume2, Send, Calendar 
 } from 'lucide-react';
 import { MedicalRecord, Language } from '../../types';
 import { translations } from '../../data/translations';

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  ArrowLeft, TrendingUp, TrendingDown, Activity, 
-  Calendar, FileText, ChevronRight, CheckCircle2, AlertTriangle 
+  ArrowLeft, TrendingUp, TrendingDown, ChevronRight 
 } from 'lucide-react';
 import { MedicalRecord, Language } from '../../types';
 import { labTrendsData } from '../../data/mockData';
@@ -15,7 +14,7 @@ interface HealthTrendsViewProps {
 
 export const HealthTrendsView: React.FC<HealthTrendsViewProps> = ({
   records,
-  language,
+  language: _language,
   onBack,
   onOpenRecord
 }) => {

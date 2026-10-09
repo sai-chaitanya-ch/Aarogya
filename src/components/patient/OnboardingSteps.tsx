@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Camera, Mic, Calendar, MapPin, ShieldCheck, ChevronRight, Check } from 'lucide-react';
+import { Camera, Mic, Calendar, MapPin, ShieldCheck, Check } from 'lucide-react';
 import { AarogyaLogo } from '../common/AarogyaLogo';
 import { Language, UserProfile } from '../../types';
 import { translations } from '../../data/translations';

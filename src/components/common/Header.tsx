@@ -27,8 +27,8 @@ export const Header: React.FC<HeaderProps> = ({
   appointments,
   onOpenProfile,
   onOpenEmergencyCard,
-  onOpenAuthModal,
-  onExportSummary
+  onOpenAuthModal: _onOpenAuthModal,
+  onExportSummary: _onExportSummary
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);

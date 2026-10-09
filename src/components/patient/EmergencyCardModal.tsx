@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Heart, Phone, AlertTriangle, ShieldCheck, QrCode, Share2 } from 'lucide-react';
+import { X, Heart, Phone, AlertTriangle, ShieldCheck, QrCode } from 'lucide-react';
 import { UserProfile, ActiveMedicationReminder } from '../../types';
 
 interface EmergencyCardModalProps {
