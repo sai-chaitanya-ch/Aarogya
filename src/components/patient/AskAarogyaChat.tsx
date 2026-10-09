@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { MedicalRecord, Language, ChatMessage } from '../../types';
 import { generateAarogyaChatResponse } from '../../services/aiService';
+import { sendChatToBackend } from '../../services/api';
 
 interface AskAarogyaChatProps {
   language: Language;
@@ -76,19 +77,30 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     setInputText('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      const result = generateAarogyaChatResponse(query, language, records);
+    sendChatToBackend(query, language, records).then(result => {
       const botMsg: ChatMessage = {
         id: `ai_${Date.now()}`,
         sender: 'aarogya',
         text: result.text,
         timestamp: 'Just now',
         citations: result.citations,
-        isEmergencyAlert: result.isEmergencyAlert
+        isEmergencyAlert: result.isEmergency
       };
       setMessages(prev => [...prev, botMsg]);
       setIsTyping(false);
-    }, 700);
+    }).catch(() => {
+      const fallbackResult = generateAarogyaChatResponse(query, language, records);
+      const botMsg: ChatMessage = {
+        id: `ai_${Date.now()}`,
+        sender: 'aarogya',
+        text: fallbackResult.text,
+        timestamp: 'Just now',
+        citations: fallbackResult.citations,
+        isEmergencyAlert: fallbackResult.isEmergencyAlert
+      };
+      setMessages(prev => [...prev, botMsg]);
+      setIsTyping(false);
+    });
   };
 
   // Web Speech API Voice Recognition

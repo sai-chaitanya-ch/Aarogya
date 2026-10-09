@@ -7,6 +7,7 @@ import { MedicalRecord, Language, ExtractedMedicine } from '../../types';
 import { translations } from '../../data/translations';
 import { analyzeDocument, DocumentAnalysisResult } from '../../services/aiService';
 import { samplePrescriptionSvg, sampleCBCReportSvg } from '../../data/mockData';
+import { processDocumentWithBackend } from '../../services/api';
 
 interface ScanReviewStepProps {
   language: Language;
@@ -46,7 +47,16 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const handleSelectPreset = (preset: 'prescription' | 'cbc') => {
     setSelectedPreset(preset);
     setIsProcessing(true);
-    setTimeout(() => {
+    processDocumentWithBackend(null, preset, patientName).then(({ record }) => {
+      setPatientName(record.patientName);
+      setVisitDate(record.visitDate);
+      setDoctorName(record.doctorName);
+      setFacilityName(record.facilityName);
+      if (record.medicines && record.medicines.length > 0) {
+        setMedicines(record.medicines);
+      }
+      setIsProcessing(false);
+    }).catch(() => {
       const res = analyzeDocument(preset);
       setPatientName(res.patientName);
       setVisitDate(res.visitDate);
@@ -54,7 +64,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       setFacilityName(res.facilityName);
       setMedicines(res.medicines);
       setIsProcessing(false);
-    }, 600);
+    });
   };
 
   const handleSave = () => {

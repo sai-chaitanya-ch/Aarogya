@@ -81,6 +81,43 @@ npm run preview
 
 ---
 
+## ☁️ Deployment Architecture & Hosting
+
+### 1. Frontend on Netlify
+* Configured with `netlify.toml` including SPA rewrite rules (`/*` → `/index.html`) and healthcare security headers.
+* **To Deploy**:
+  1. Go to [Netlify](https://app.netlify.com/) and click **"Add new site"** → **"Import an existing project"**.
+  2. Select your GitHub repository `sai-chaitanya-ch/Aarogya`.
+  3. Set Build Command: `npm run build` and Publish Directory: `dist`.
+  4. Under **Environment variables**, set:
+     * `VITE_API_URL`: Your Render backend URL (e.g. `https://aarogya-api.onrender.com`)
+     * `VITE_SUPABASE_URL`: Your Supabase Project URL
+     * `VITE_SUPABASE_ANON_KEY`: Your Supabase Anon Public Key
+
+### 2. Backend (FastAPI) on Render
+* Configured with `render.yaml` and `backend/requirements.txt`.
+* **To Deploy**:
+  1. Go to [Render Dashboard](https://dashboard.render.com/) and select **"Blueprints"** or **"New Web Service"**.
+  2. Connect repository `sai-chaitanya-ch/Aarogya`.
+  3. Root Directory: `backend`.
+  4. Build Command: `pip install -r requirements.txt`.
+  5. Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`.
+  6. Add **Environment Variables**:
+     * `GEMINI_API_KEY`: Your Google Gemini API Key.
+     * `SUPABASE_URL`: Your Supabase project URL.
+     * `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase service role secret key.
+
+### 3. Database & Storage on Supabase
+* **PostgreSQL with Row Level Security (RLS)** & **Private Storage Bucket**:
+  1. In your [Supabase Dashboard](https://supabase.com/dashboard), open the **SQL Editor**.
+  2. Copy and paste the entire script from `supabase/schema.sql`.
+  3. Run the script. It creates:
+     * `profiles`, `doctor_profiles`, `medical_documents`, `medication_reminders`, `appointments`, and `abha_profiles`.
+     * Strict RLS policies so patients can only access their records, and verified doctors only access authorized patients.
+     * Private `medical-records` bucket configured with signed URL access (no public URLs).
+
+---
+
 ## 🛠️ Tech Stack
 
 * **Frontend**: React 19, TypeScript, Vite
