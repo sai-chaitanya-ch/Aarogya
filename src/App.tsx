@@ -3,13 +3,16 @@ import {
   UserProfile, Language, MedicalRecord, ActiveMedicationReminder, 
   Appointment, Doctor 
 } from './types';
-import { 
-  initialUserProfile, initialMedicalRecords, initialReminders, 
-  initialAppointments 
-} from './data/mockData';
 import { Header } from './components/common/Header';
 import { PhoneFrame } from './components/common/PhoneFrame';
 import { BottomNav } from './components/common/BottomNav';
+import { Toast } from './components/common/Toast';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { HealthDataProvider, useHealthData } from './context/HealthDataContext';
+import { AuthModal } from './components/auth/AuthModal';
+import { EmergencyCardModal } from './components/patient/EmergencyCardModal';
+import { exportClinicalSummary } from './services/exportService';
+
 import { OnboardingSteps } from './components/patient/OnboardingSteps';
 import { PatientHome } from './components/patient/PatientHome';
 import { ScanReviewStep } from './components/patient/ScanReviewStep';
@@ -24,18 +27,16 @@ import { HealthTrendsView } from './components/patient/HealthTrendsView';
 import { PatientProfileView } from './components/patient/PatientProfileView';
 import { DoctorPortal } from './components/doctor/DoctorPortal';
 
-export function App() {
-  // App Role: Patient vs Doctor Portal
-  const [role, setRole] = useState<'patient' | 'doctor'>('patient');
+function AarogyaAppContent() {
+  const { user, role, setRole, updateUserProfile } = useAuth();
+  const { 
+    records, reminders, appointments, 
+    addRecord, deleteRecord, toggleReminderStatus, 
+    addReminder, bookAppointment, 
+    notificationToast, clearNotificationToast 
+  } = useHealthData();
 
-  // User Profile
-  const [user, setUser] = useState<UserProfile>(initialUserProfile);
   const [language, setLanguage] = useState<Language>(user.preferredLanguage || 'en');
-
-  // Core Data
-  const [records, setRecords] = useState<MedicalRecord[]>(initialMedicalRecords);
-  const [reminders, setReminders] = useState<ActiveMedicationReminder[]>(initialReminders);
-  const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
 
   // Patient Navigation State
   // onboarding | home | scan | summary | chat | library | reminders | appointments | doctors | trends | profile
@@ -43,58 +44,23 @@ export function App() {
   const [onboardingStep, setOnboardingStep] = useState<1 | 2 | null>(null);
 
   // Selected Record for Summary Inspection
-  const [activeRecordForSummary, setActiveRecordForSummary] = useState<MedicalRecord>(initialMedicalRecords[0]);
+  const [activeRecordForSummary, setActiveRecordForSummary] = useState<MedicalRecord>(records[0]);
   const [chatInitialPrompt, setChatInitialPrompt] = useState<string>('');
 
-  // ABDM Modal
+  // Modals state
   const [isAbhaModalOpen, setIsAbhaModalOpen] = useState(false);
+  const [isEmergencyCardOpen, setIsEmergencyCardOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Handle saving new scanned record
-  const handleSaveScannedRecord = (newRec: MedicalRecord) => {
-    setRecords(prev => [newRec, ...prev]);
-
-    // If new record contains medicines, also populate active reminders
-    if (newRec.medicines && newRec.medicines.length > 0) {
-      const newMeds: ActiveMedicationReminder[] = newRec.medicines.map((m, idx) => ({
-        id: `rem_auto_${Date.now()}_${idx}`,
-        medicineName: m.name,
-        dosage: m.dosage,
-        instructions: m.instructions || m.frequency,
-        timeSlot: m.timing === 'night' ? '09:30 PM' : m.timing === 'afternoon' ? '01:30 PM' : '08:00 AM',
-        slotName: m.timing === 'night' ? 'Night' : m.timing === 'afternoon' ? 'Afternoon' : 'Morning',
-        status: 'pending',
-        prescriptionId: newRec.id
-      }));
-      setReminders(prev => [...newMeds, ...prev]);
-    }
-  };
-
-  // Toggle dose taken status
-  const handleToggleReminderStatus = (id: string, newStatus: 'taken' | 'skipped' | 'pending') => {
-    setReminders(prev => prev.map(r => r.id === id ? { ...r, status: newStatus } : r));
-  };
-
-  // Add custom medication reminder
-  const handleAddReminder = (newRem: ActiveMedicationReminder) => {
-    setReminders(prev => [newRem, ...prev]);
-  };
-
-  // Book new appointment
-  const handleBookAppointment = (newApt: Appointment) => {
-    setAppointments(prev => [newApt, ...prev]);
-    alert(`Appointment confirmed with ${newApt.doctorName} for ${newApt.date} at ${newApt.time}!`);
-    setPatientView('appointments');
-  };
-
-  // Update user profile
-  const handleUpdateProfile = (updated: Partial<UserProfile>) => {
-    setUser(prev => ({ ...prev, ...updated }));
+  const handleSaveScannedRecord = async (newRec: MedicalRecord) => {
+    await addRecord(newRec);
   };
 
   // Switch language
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
-    setUser(prev => ({ ...prev, preferredLanguage: lang }));
+    updateUserProfile({ preferredLanguage: lang });
   };
 
   // Determine current active screen title for PhoneFrame top bar
@@ -133,6 +99,9 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-slate-100/90 text-slate-800 flex flex-col font-sans">
+      {/* Real-time Notification Toast */}
+      <Toast message={notificationToast} onClose={clearNotificationToast} />
+
       {/* Top Universal App Header */}
       <Header
         currentRole={role}
@@ -147,6 +116,9 @@ export function App() {
           setPatientView('profile');
           setOnboardingStep(null);
         }}
+        onOpenEmergencyCard={() => setIsEmergencyCardOpen(true)}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onExportSummary={() => exportClinicalSummary(user, records, reminders)}
       />
 
       {/* Quick Demo Navigation Strip */}
@@ -184,7 +156,7 @@ export function App() {
             onClick={() => { 
               setRole('patient'); 
               setOnboardingStep(null); 
-              setActiveRecordForSummary(records[0]); 
+              if (records.length > 0) setActiveRecordForSummary(records[0]); 
               setPatientView('summary'); 
             }}
             className={`px-2 py-0.5 rounded font-bold transition-colors ${patientView === 'summary' ? 'bg-white text-teal-900' : 'hover:bg-emerald-800'}`}
@@ -230,7 +202,7 @@ export function App() {
                   language={language}
                   onLanguageSelect={handleLanguageChange}
                   user={user}
-                  onSaveProfile={handleUpdateProfile}
+                  onSaveProfile={updateUserProfile}
                   onNext={() => {
                     if (onboardingStep === 1) setOnboardingStep(2);
                     else {
@@ -272,7 +244,7 @@ export function App() {
               ) : patientView === 'summary' ? (
                 /* Step 05: Understand / Report Summary */
                 <ReportSummaryStep
-                  record={activeRecordForSummary}
+                  record={activeRecordForSummary || records[0]}
                   language={language}
                   onBack={() => setPatientView('home')}
                   onAskFollowUp={(question) => {
@@ -307,7 +279,7 @@ export function App() {
                     setPatientView('summary');
                   }}
                   onScanNew={() => setPatientView('scan')}
-                  onDeleteRecord={(id) => setRecords(records.filter(r => r.id !== id))}
+                  onDeleteRecord={(id) => deleteRecord(id)}
                 />
               ) : patientView === 'reminders' ? (
                 /* Medicines & Reminders */
@@ -315,8 +287,8 @@ export function App() {
                   reminders={reminders}
                   language={language}
                   onBack={() => setPatientView('home')}
-                  onToggleStatus={handleToggleReminderStatus}
-                  onAddReminder={handleAddReminder}
+                  onToggleStatus={toggleReminderStatus}
+                  onAddReminder={addReminder}
                 />
               ) : patientView === 'appointments' ? (
                 /* Appointments */
@@ -324,7 +296,7 @@ export function App() {
                   appointments={appointments}
                   language={language}
                   onBack={() => setPatientView('home')}
-                  onBookNew={handleBookAppointment}
+                  onBookNew={bookAppointment}
                   onFindDoctor={() => setPatientView('doctors')}
                 />
               ) : patientView === 'doctors' ? (
@@ -345,7 +317,7 @@ export function App() {
                       type: 'In-person',
                       status: 'upcoming'
                     };
-                    handleBookAppointment(newApt);
+                    bookAppointment(newApt);
                   }}
                 />
               ) : patientView === 'trends' ? (
@@ -367,11 +339,14 @@ export function App() {
                   onLanguageChange={handleLanguageChange}
                   onBack={() => setPatientView('home')}
                   onOpenAbhaModal={() => setIsAbhaModalOpen(true)}
-                  onSaveProfile={handleUpdateProfile}
+                  onSaveProfile={updateUserProfile}
+                  onOpenEmergencyCard={() => setIsEmergencyCardOpen(true)}
+                  onExportSummary={() => exportClinicalSummary(user, records, reminders)}
+                  onOpenAuthModal={() => setIsAuthModalOpen(true)}
                 />
               ) : null}
 
-              {/* Bottom Navigation for Patient (shown on standard screens) */}
+              {/* Bottom Navigation for Patient */}
               {onboardingStep === null && patientView !== 'scan' && patientView !== 'chat' && (
                 <BottomNav
                   activeTab={getActiveBottomTab()}
@@ -389,9 +364,33 @@ export function App() {
         user={user}
         isOpen={isAbhaModalOpen}
         onClose={() => setIsAbhaModalOpen(false)}
-        onUpdateUser={handleUpdateProfile}
+        onUpdateUser={updateUserProfile}
+      />
+
+      {/* Emergency Card Modal */}
+      <EmergencyCardModal
+        user={user}
+        reminders={reminders}
+        isOpen={isEmergencyCardOpen}
+        onClose={() => setIsEmergencyCardOpen(false)}
+      />
+
+      {/* Auth Modal (Login / Sign Up / Demo) */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
       />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <HealthDataProvider>
+        <AarogyaAppContent />
+      </HealthDataProvider>
+    </AuthProvider>
   );
 }
 

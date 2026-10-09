@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { 
   Crop, RotateCw, Sparkles, Check, Edit2, AlertTriangle, 
-  ArrowLeft, FileText, Upload, Plus, Trash2, SlidersHorizontal 
+  ArrowLeft, FileText, Upload, Plus, Trash2, SlidersHorizontal, Camera
 } from 'lucide-react';
 import { MedicalRecord, Language, ExtractedMedicine } from '../../types';
 import { translations } from '../../data/translations';
 import { analyzeDocument, DocumentAnalysisResult } from '../../services/aiService';
 import { samplePrescriptionSvg, sampleCBCReportSvg } from '../../data/mockData';
 import { processDocumentWithBackend } from '../../services/api';
+import { LiveCameraScanner } from './LiveCameraScanner';
 
 interface ScanReviewStepProps {
   language: Language;
@@ -25,10 +26,13 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const t = translations[language];
 
   // Document selection mode
-  const [selectedPreset, setSelectedPreset] = useState<'prescription' | 'cbc'>('prescription');
+  const [selectedPreset, setSelectedPreset] = useState<'prescription' | 'cbc' | 'custom'>('prescription');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showCropModal, setShowCropModal] = useState(false);
+  const [showLiveCamera, setShowLiveCamera] = useState(false);
+  const [customCapturedImage, setCustomCapturedImage] = useState<string | null>(null);
+  const [customFile, setCustomFile] = useState<File | null>(null);
   const [rotation, setRotation] = useState(0);
   const [contrastEnhanced, setContrastEnhanced] = useState(false);
 
@@ -115,10 +119,59 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           </button>
         </div>
 
-        {/* Preset Selector Pill for Hackathon demo testing */}
-        <div className="mt-3 flex items-center justify-between bg-slate-200/70 p-1 rounded-xl text-xs font-semibold">
+        {/* Camera & File Upload Quick Controls */}
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <button
-            onClick={() => handleSelectPreset('prescription')}
+            type="button"
+            onClick={() => setShowLiveCamera(true)}
+            className="py-2.5 px-3 bg-teal-700 hover:bg-teal-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all"
+          >
+            <Camera className="w-4 h-4" />
+            <span>Open Live Camera</span>
+          </button>
+
+          <label className="py-2.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer active:scale-95 transition-all">
+            <Upload className="w-4 h-4 text-teal-700" />
+            <span>Upload Photo / PDF</span>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  setCustomFile(file);
+                  const url = URL.createObjectURL(file);
+                  setCustomCapturedImage(url);
+                  setSelectedPreset('custom');
+                  setIsProcessing(true);
+                  processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
+                    setPatientName(record.patientName);
+                    setVisitDate(record.visitDate);
+                    setDoctorName(record.doctorName);
+                    setFacilityName(record.facilityName);
+                    if (record.medicines && record.medicines.length > 0) {
+                      setMedicines(record.medicines);
+                    }
+                    setIsProcessing(false);
+                  }).catch(() => {
+                    setIsProcessing(false);
+                  });
+                }
+              }}
+            />
+          </label>
+        </div>
+
+        {/* Preset Selector Pill for Testing */}
+        <div className="mt-2 flex items-center justify-between bg-slate-200/70 p-1 rounded-xl text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => {
+              setCustomCapturedImage(null);
+              setCustomFile(null);
+              handleSelectPreset('prescription');
+            }}
             className={`flex-1 py-1.5 rounded-lg transition-all ${
               selectedPreset === 'prescription' ? 'bg-white text-teal-900 shadow-xs' : 'text-slate-600'
             }`}
@@ -126,7 +179,12 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
             Prescription (Dr. Kumar)
           </button>
           <button
-            onClick={() => handleSelectPreset('cbc')}
+            type="button"
+            onClick={() => {
+              setCustomCapturedImage(null);
+              setCustomFile(null);
+              handleSelectPreset('cbc');
+            }}
             className={`flex-1 py-1.5 rounded-lg transition-all ${
               selectedPreset === 'cbc' ? 'bg-white text-teal-900 shadow-xs' : 'text-slate-600'
             }`}
@@ -144,7 +202,13 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
               filter: contrastEnhanced ? 'contrast(135%) brightness(95%)' : 'none'
             }}
           >
-            {selectedPreset === 'prescription' ? (
+            {customCapturedImage ? (
+              <img
+                src={customCapturedImage}
+                alt="Captured Medical Document"
+                className="max-h-full max-w-full object-contain rounded-lg"
+              />
+            ) : selectedPreset === 'prescription' ? (
               <img
                 src={samplePrescriptionSvg}
                 alt="Prescription"
@@ -387,6 +451,56 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* Live Camera Scanner Overlay */}
+      {showLiveCamera && (
+        <LiveCameraScanner
+          onCapture={(blob, previewUrl) => {
+            setCustomCapturedImage(previewUrl);
+            setSelectedPreset('custom');
+            setShowLiveCamera(false);
+            setIsProcessing(true);
+            const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
+            setCustomFile(file);
+            processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
+              setPatientName(record.patientName);
+              setVisitDate(record.visitDate);
+              setDoctorName(record.doctorName);
+              setFacilityName(record.facilityName);
+              if (record.medicines && record.medicines.length > 0) {
+                setMedicines(record.medicines);
+              }
+              setIsProcessing(false);
+            }).catch(() => {
+              setIsProcessing(false);
+            });
+          }}
+          onCancel={() => setShowLiveCamera(false)}
+          onSelectFile={(e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              setCustomFile(file);
+              const url = URL.createObjectURL(file);
+              setCustomCapturedImage(url);
+              setSelectedPreset('custom');
+              setShowLiveCamera(false);
+              setIsProcessing(true);
+              processDocumentWithBackend(file, 'custom', patientName).then(({ record }) => {
+                setPatientName(record.patientName);
+                setVisitDate(record.visitDate);
+                setDoctorName(record.doctorName);
+                setFacilityName(record.facilityName);
+                if (record.medicines && record.medicines.length > 0) {
+                  setMedicines(record.medicines);
+                }
+                setIsProcessing(false);
+              }).catch(() => {
+                setIsProcessing(false);
+              });
+            }
+          }}
+        />
       )}
     </div>
   );

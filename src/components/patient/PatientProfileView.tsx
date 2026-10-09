@@ -12,6 +12,9 @@ interface PatientProfileViewProps {
   onBack: () => void;
   onOpenAbhaModal: () => void;
   onSaveProfile: (updated: Partial<UserProfile>) => void;
+  onOpenEmergencyCard?: () => void;
+  onExportSummary?: () => void;
+  onOpenAuthModal?: () => void;
 }
 
 export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
@@ -20,7 +23,10 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
   onLanguageChange,
   onBack,
   onOpenAbhaModal,
-  onSaveProfile
+  onSaveProfile,
+  onOpenEmergencyCard,
+  onExportSummary,
+  onOpenAuthModal
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(user.name);
@@ -212,6 +218,44 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Real Product Care Tools */}
+        <div className="mt-3 space-y-2">
+          {onOpenEmergencyCard && (
+            <button
+              onClick={onOpenEmergencyCard}
+              className="w-full py-2.5 px-3 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 rounded-xl font-bold text-xs flex items-center justify-between transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Heart className="w-4 h-4 text-red-600 fill-red-600" />
+                <span>View Emergency Health Card (SOS)</span>
+              </div>
+              <span className="text-[10px] uppercase font-black bg-white px-2 py-0.5 rounded shadow-2xs">Open</span>
+            </button>
+          )}
+
+          {onExportSummary && (
+            <button
+              onClick={onExportSummary}
+              className="w-full py-2.5 px-3 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 rounded-xl font-bold text-xs flex items-center justify-between transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-teal-700" />
+                <span>Export Clinical Health Summary (Print / PDF)</span>
+              </div>
+              <span className="text-[10px] uppercase font-black bg-white px-2 py-0.5 rounded shadow-2xs">Export</span>
+            </button>
+          )}
+
+          {onOpenAuthModal && (
+            <button
+              onClick={onOpenAuthModal}
+              className="w-full py-2.5 px-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+            >
+              <span>Manage Account & Cloud Sync</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -12,6 +12,9 @@ interface HeaderProps {
   reminders: ActiveMedicationReminder[];
   appointments: Appointment[];
   onOpenProfile?: () => void;
+  onOpenEmergencyCard?: () => void;
+  onOpenAuthModal?: () => void;
+  onExportSummary?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,7 +25,10 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   reminders,
   appointments,
-  onOpenProfile
+  onOpenProfile,
+  onOpenEmergencyCard,
+  onOpenAuthModal,
+  onExportSummary
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
@@ -187,11 +193,22 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
+          {/* Emergency Card 1-Tap Trigger */}
+          {onOpenEmergencyCard && (
+            <button
+              onClick={onOpenEmergencyCard}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200/60 font-black text-[11px] transition-colors"
+              title="Open Emergency Health Card"
+            >
+              <span>SOS 🏥</span>
+            </button>
+          )}
+
           {/* User Avatar Badge matching screenshot "SC" circle */}
           <button
             onClick={onOpenProfile}
             className="w-8 h-8 rounded-full bg-teal-100 text-teal-800 font-bold text-xs flex items-center justify-center hover:ring-2 hover:ring-teal-600 transition-all shadow-inner"
-            title="Profile details"
+            title="Profile details & settings"
           >
             {user.name.slice(0, 2).toUpperCase()}
           </button>
