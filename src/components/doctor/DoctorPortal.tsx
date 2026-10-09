@@ -81,19 +81,19 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
     // Create new medical record to sync to patient
     const publishedRecord: MedicalRecord = {
       id: `rx_doc_${Date.now()}`,
-      title: `Prescription by Dr. S. Kumar`,
+      title: `Prescription by ${doctorDisplayName}`,
       documentType: 'Prescription',
       patientName: selectedPatient.name,
-      visitDate: 'Today, 09 Oct 2026',
-      doctorName: 'Dr. S. Kumar',
-      facilityName: 'City Care Clinic',
+      visitDate: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      doctorName: doctorDisplayName,
+      facilityName: 'Aarogya Health Network',
       specialty: 'General Medicine',
       status: 'verified',
       aiSummary: {
-        en: `Prescription published by Dr. S. Kumar containing ${prescriptionMedicines.length} medications. Instructions: ${rxInstructions}`,
-        te: `డాక్టర్ ఎస్. కుమార్ ${prescriptionMedicines.length} మందులతో ప్రిస్క్రిప్షన్ విడుదల చేశారు. సూచనలు: ${rxInstructions}`,
-        hi: `डॉ. एस. कुमार द्वारा ${prescriptionMedicines.length} दवाओं के साथ पर्चा जारी किया गया। निर्देश: ${rxInstructions}`,
-        ta: `டாக்டர் எஸ். குமார் ${prescriptionMedicines.length} மருந்துகளுடன் மருந்துச்சீட்டை வெளியிட்டுள்ளார்.`
+        en: `Prescription published by ${doctorDisplayName} containing ${prescriptionMedicines.length} medications. Instructions: ${rxInstructions || 'None'}`,
+        te: `${doctorDisplayName} ${prescriptionMedicines.length} మందులతో ప్రిస్క్రిప్షన్ విడుదల చేశారు.`,
+        hi: `${doctorDisplayName} द्वारा ${prescriptionMedicines.length} दवाओं के साथ पर्चा जारी किया गया।`,
+        ta: `${doctorDisplayName} ${prescriptionMedicines.length} மருந்துகளுடன் மருந்துச்சீட்டை வெளியிட்டுள்ளார்.`
       },
       medicines: prescriptionMedicines,
       labValues: [],
@@ -154,15 +154,15 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
       <div className="p-3.5 bg-white border-b border-slate-100 flex items-center justify-between shadow-xs sticky top-0 z-20">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-teal-800 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-            SK
+            {doctorInitials}
           </div>
           <div>
             <div className="flex items-center gap-1.5 font-extrabold text-xs text-slate-900">
-              <span>Dr. S. Kumar</span>
+              <span>{doctorDisplayName}</span>
               <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
             </div>
             <div className="text-[10px] text-teal-800 font-semibold">
-              General Medicine · City Care Clinic
+              General Medicine · Verified Practitioner
             </div>
           </div>
         </div>
@@ -185,14 +185,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
             {/* Greeting */}
             <div className="p-3.5 bg-gradient-to-r from-teal-50 via-emerald-50/40 to-teal-50 rounded-3xl border border-teal-100">
               <h2 className="text-lg font-black text-slate-900">
-                Good morning, Dr. S. Kumar 👨‍⚕️
+                Good morning, {doctorDisplayName} 👨‍⚕️
               </h2>
               <p className="text-xs text-slate-600 font-medium mt-0.5">
-                City Care Clinic · 12 consultations scheduled today
+                Clinical Workspace · {patients.length} registered patient{patients.length === 1 ? '' : 's'}
               </p>
             </div>
 
-            {/* 4 Stats Cards matching mockup */}
+            {/* 4 Stats Cards */}
             <div className="grid grid-cols-4 gap-2">
               <div 
                 onClick={() => setActiveTab('patients')}
@@ -205,15 +205,15 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                 onClick={() => setActiveTab('appointments')}
                 className="p-2.5 bg-white rounded-2xl border border-slate-100 shadow-2xs text-center cursor-pointer hover:border-teal-300"
               >
-                <span className="text-lg font-black text-teal-800 block">12</span>
+                <span className="text-lg font-black text-teal-800 block">0</span>
                 <span className="text-[10px] font-bold text-slate-500">Today</span>
               </div>
               <div className="p-2.5 bg-white rounded-2xl border border-slate-100 shadow-2xs text-center">
-                <span className="text-lg font-black text-amber-600 block">5</span>
+                <span className="text-lg font-black text-amber-600 block">0</span>
                 <span className="text-[10px] font-bold text-slate-500">Pending</span>
               </div>
               <div className="p-2.5 bg-white rounded-2xl border border-slate-100 shadow-2xs text-center">
-                <span className="text-lg font-black text-blue-600 block">3</span>
+                <span className="text-lg font-black text-blue-600 block">0</span>
                 <span className="text-[10px] font-bold text-slate-500">Follow-ups</span>
               </div>
             </div>
@@ -248,8 +248,13 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
 
               <button
                 onClick={() => {
-                  setSelectedPatient(patients[0]);
-                  setShowCreatePrescription(true);
+                  if (patients.length > 0) {
+                    setSelectedPatient(patients[0]);
+                    setShowCreatePrescription(true);
+                  } else {
+                    setActiveTab('patients');
+                    setShowAddPatientModal(true);
+                  }
                 }}
                 className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center gap-2.5 hover:border-teal-300 text-left transition-all"
               >
@@ -283,54 +288,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                 <button onClick={() => setActiveTab('appointments')} className="text-teal-700 text-[11px]">View all</button>
               </div>
 
-              <div className="space-y-2 text-xs">
-                <div className="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between border border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-mono text-[11px] font-bold text-slate-600">09:00 AM</span>
-                    <div>
-                      <div className="font-bold text-slate-900">Ramesh K</div>
-                      <div className="text-[10px] text-slate-500">In-person · Follow-up</div>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => { setSelectedPatient(patients[0]); setPatientDetailTab('overview'); }}
-                    className="px-2.5 py-1 bg-teal-700 text-white rounded-lg font-bold text-[11px] hover:bg-teal-800"
-                  >
-                    Start
-                  </button>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between border border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-mono text-[11px] font-bold text-slate-600">10:00 AM</span>
-                    <div>
-                      <div className="font-bold text-slate-900">Priya S</div>
-                      <div className="text-[10px] text-slate-500">In-person · New Consultation</div>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => { setSelectedPatient(patients[1]); setPatientDetailTab('overview'); }}
-                    className="px-2.5 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg font-bold text-[11px] hover:bg-slate-100"
-                  >
-                    View
-                  </button>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-slate-50 flex items-center justify-between border border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-mono text-[11px] font-bold text-slate-600">11:30 AM</span>
-                    <div>
-                      <div className="font-bold text-slate-900">Arjun M</div>
-                      <div className="text-[10px] text-slate-500">Online · Report Review</div>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => { setSelectedPatient(patients[2]); setPatientDetailTab('overview'); }}
-                    className="px-2.5 py-1 bg-blue-600 text-white rounded-lg font-bold text-[11px] hover:bg-blue-700"
-                  >
-                    Join
-                  </button>
-                </div>
+              <div className="p-4 text-center rounded-xl bg-slate-50 border border-slate-100 text-slate-500 text-xs">
+                No appointments scheduled for today.
               </div>
             </div>
           </div>
@@ -363,44 +322,60 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
             </div>
 
             {/* Patient Cards List */}
-            <div className="space-y-2">
-              {patients.map(p => (
-                <div
-                  key={p.id}
-                  onClick={() => setSelectedPatient(p)}
-                  className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 cursor-pointer transition-all flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={p.avatarUrl}
-                      alt={p.name}
-                      className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                    />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-slate-900">{p.name}</span>
-                        {p.tag && (
-                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
-                            p.tag === 'Follow-up' ? 'bg-amber-100 text-amber-800' :
-                            p.tag === 'New' ? 'bg-emerald-100 text-emerald-800' :
-                            'bg-blue-100 text-blue-800'
-                          }`}>
-                            {p.tag}
-                          </span>
-                        )}
+            {patients.length === 0 ? (
+              <div className="p-8 text-center bg-white rounded-2xl border border-slate-100">
+                <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <h3 className="font-bold text-sm text-slate-800">No Patients Linked Yet</h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                  Click "Add Patient" above to register a patient or link their ABHA number.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {patients
+                  .filter(p => 
+                    p.name.toLowerCase().includes(patientSearch.toLowerCase()) || 
+                    (p.phone && p.phone.includes(patientSearch)) || 
+                    (p.abhaId && p.abhaId.includes(patientSearch))
+                  )
+                  .map(p => (
+                    <div
+                      key={p.id}
+                      onClick={() => setSelectedPatient(p)}
+                      className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 cursor-pointer transition-all flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={p.avatarUrl}
+                          alt={p.name}
+                          className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                        />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-slate-900">{p.name}</span>
+                            {p.tag && (
+                              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
+                                p.tag === 'Follow-up' ? 'bg-amber-100 text-amber-800' :
+                                p.tag === 'New' ? 'bg-emerald-100 text-emerald-800' :
+                                'bg-blue-100 text-blue-800'
+                              }`}>
+                                {p.tag}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            {p.gender === 'male' ? 'Male' : 'Female'} · {p.age} yrs · {p.phone}
+                          </div>
+                          <div className="text-[10px] font-mono text-teal-800 mt-0.5">
+                            {p.abhaId ? `ABHA: ${p.abhaId}` : 'No ABHA linked'}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-[10px] text-slate-500 mt-0.5">
-                        {p.gender === 'male' ? 'Male' : 'Female'} · {p.age} yrs · {p.phone}
-                      </div>
-                      <div className="text-[10px] font-mono text-teal-800 mt-0.5">
-                        {p.abhaId ? `ABHA: ${p.abhaId}` : 'No ABHA linked'}
-                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
                     </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
-                </div>
-              ))}
-            </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -518,23 +493,8 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
             )}
 
             {patientDetailTab === 'timeline' && (
-              <div className="pl-4 border-l-2 border-teal-200 space-y-3.5 text-xs ml-2">
-                <div className="relative">
-                  <div className="absolute -left-[23px] top-1 w-3.5 h-3.5 rounded-full bg-teal-700 border-2 border-white" />
-                  <div className="p-3 bg-white rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] font-bold text-teal-800">14 Sep 2024 · Follow-up Visit</span>
-                    <h4 className="font-bold text-slate-900 mt-0.5">General Medicine Consultation</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Notes: Improved symptoms, continue medication.</p>
-                  </div>
-                </div>
-                <div className="relative">
-                  <div className="absolute -left-[23px] top-1 w-3.5 h-3.5 rounded-full bg-blue-600 border-2 border-white" />
-                  <div className="p-3 bg-white rounded-xl border border-slate-100 shadow-2xs">
-                    <span className="text-[10px] font-bold text-blue-700">02 Aug 2024 · Lab Report</span>
-                    <h4 className="font-bold text-slate-900 mt-0.5">Complete Blood Count (CBC)</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">City Care Lab · Hemoglobin: 10.8 g/dL</p>
-                  </div>
-                </div>
+              <div className="p-4 text-center rounded-xl bg-white border border-slate-100 text-slate-500 text-xs">
+                No past visit records or timeline entries available for this patient.
               </div>
             )}
 
@@ -545,17 +505,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                   <span className="text-xs font-bold text-teal-900 block">Upload Document or Prescriptions</span>
                   <span className="text-[10px] text-slate-500">PDF, JPG, PNG (Max 10MB)</span>
                 </div>
-                {initialMedicalRecords.slice(0, 2).map(r => (
-                  <div key={r.id} className="p-2.5 bg-white rounded-xl border flex items-center justify-between text-xs">
-                    <div>
-                      <div className="font-bold text-slate-800">{r.title}</div>
-                      <div className="text-[10px] text-slate-400">{r.visitDate} · {r.facilityName}</div>
-                    </div>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                      {r.documentType}
-                    </span>
-                  </div>
-                ))}
+                <div className="p-4 text-center rounded-xl bg-white border border-slate-100 text-slate-500 text-xs">
+                  No medical records or prescriptions uploaded for this patient yet.
+                </div>
               </div>
             )}
           </div>
@@ -699,90 +651,82 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
 
         {/* VIEW 5: MESSAGES / PATIENT CHAT */}
         {activeTab === 'messages' && (
-          <div className="flex flex-col h-[520px] bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
-            {/* Chat header */}
-            <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <img
-                  src={activeChatPatient?.avatarUrl || patients[0].avatarUrl}
-                  alt="avatar"
-                  className="w-8 h-8 rounded-full object-cover border"
-                />
-                <div>
-                  <div className="font-bold text-xs text-slate-900">{activeChatPatient?.name || 'Ramesh Kumar'}</div>
-                  <div className="text-[10px] text-slate-400">Patient · Online</div>
-                </div>
-              </div>
-              <button className="p-1 text-slate-500 hover:text-teal-700">
-                <Phone className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Chat list */}
-            <div className="flex-1 p-3 overflow-y-auto space-y-2 text-xs">
-              {chatMessages.map((m, i) => (
-                <div key={i} className={`flex flex-col ${m.sender === 'doc' ? 'items-end' : 'items-start'}`}>
-                  <div className={`p-2.5 rounded-xl max-w-[85%] ${
-                    m.sender === 'doc' ? 'bg-teal-700 text-white rounded-br-none' : 'bg-slate-100 text-slate-800 rounded-bl-none'
-                  }`}>
-                    {m.text}
+          activeChatPatient ? (
+            <div className="flex flex-col h-[520px] bg-white rounded-2xl border border-slate-100 shadow-xs overflow-hidden">
+              {/* Chat header */}
+              <div className="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <img
+                    src={activeChatPatient.avatarUrl}
+                    alt="avatar"
+                    className="w-8 h-8 rounded-full object-cover border"
+                  />
+                  <div>
+                    <div className="font-bold text-xs text-slate-900">{activeChatPatient.name}</div>
+                    <div className="text-[10px] text-slate-400">Patient · Online</div>
                   </div>
-                  <span className="text-[9px] text-slate-400 mt-0.5 px-1">{m.time}</span>
                 </div>
-              ))}
-            </div>
+                <button className="p-1 text-slate-500 hover:text-teal-700">
+                  <Phone className="w-4 h-4" />
+                </button>
+              </div>
 
-            {/* Chat input */}
-            <form onSubmit={handleSendChat} className="p-2 border-t border-slate-100 flex items-center gap-1.5">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                placeholder="Type clinical advice or response..."
-                className="flex-1 px-3 py-2 text-xs border rounded-xl outline-none focus:border-teal-700"
-              />
-              <button
-                type="submit"
-                className="p-2 bg-teal-700 text-white rounded-xl hover:bg-teal-800"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
-          </div>
+              {/* Chat list */}
+              <div className="flex-1 p-3 overflow-y-auto space-y-2 text-xs">
+                {chatMessages.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-400 text-center">
+                    No consultation messages yet with {activeChatPatient.name}.
+                  </div>
+                ) : (
+                  chatMessages.map((m, i) => (
+                    <div key={i} className={`flex flex-col ${m.sender === 'doc' ? 'items-end' : 'items-start'}`}>
+                      <div className={`p-2.5 rounded-xl max-w-[85%] ${
+                        m.sender === 'doc' ? 'bg-teal-700 text-white rounded-br-none' : 'bg-slate-100 text-slate-800 rounded-bl-none'
+                      }`}>
+                        {m.text}
+                      </div>
+                      <span className="text-[9px] text-slate-400 mt-0.5 px-1">{m.time}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Chat input */}
+              <form onSubmit={handleSendChat} className="p-2 border-t border-slate-100 flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  placeholder="Type clinical advice or response..."
+                  className="flex-1 px-3 py-2 text-xs border rounded-xl outline-none focus:border-teal-700"
+                />
+                <button
+                  type="submit"
+                  className="p-2 bg-teal-700 text-white rounded-xl hover:bg-teal-800"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="p-8 text-center bg-white rounded-2xl border border-slate-100">
+              <MessageSquare className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+              <h3 className="font-bold text-sm text-slate-800">No Patient Messages</h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                Add or select a patient to view messages and clinical conversations.
+              </p>
+            </div>
+          )
         )}
 
         {/* VIEW 6: APPOINTMENTS */}
         {activeTab === 'appointments' && (
           <div className="space-y-3">
             <h2 className="text-sm font-extrabold text-slate-900">Appointments Schedule</h2>
-            <div className="space-y-2 text-xs">
-              <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900">Ramesh Kumar (28 Y)</div>
-                  <div className="text-[11px] text-slate-500">09:00 AM · In-person Consultation</div>
-                </div>
-                <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px]">
-                  Next in Queue
-                </span>
-              </div>
-              <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900">Priya Sharma (35 Y)</div>
-                  <div className="text-[11px] text-slate-500">10:00 AM · New Consultation</div>
-                </div>
-                <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full font-bold text-[10px]">
-                  Confirmed
-                </span>
-              </div>
-              <div className="p-3 bg-white rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="font-bold text-slate-900">Arjun Mehta (42 Y)</div>
-                  <div className="text-[11px] text-slate-500">11:30 AM · Online Teleconsult</div>
-                </div>
-                <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-bold text-[10px]">
-                  Teleconsult
-                </span>
-              </div>
+            <div className="p-8 text-center bg-white rounded-2xl border border-slate-100">
+              <Calendar className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+              <h3 className="font-bold text-sm text-slate-800">No Appointments Scheduled</h3>
+              <p className="text-xs text-slate-500 mt-1">Consultations scheduled with patients will appear here.</p>
             </div>
           </div>
         )}
@@ -792,18 +736,17 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
           <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-xs space-y-3 text-xs">
             <div className="flex items-center gap-3">
               <div className="w-14 h-14 rounded-full bg-teal-800 text-white font-bold text-xl flex items-center justify-center">
-                SK
+                {doctorInitials}
               </div>
               <div>
-                <h3 className="font-bold text-sm text-slate-900">Dr. S. Kumar</h3>
-                <p className="text-teal-800 font-semibold">MBBS, MD (General Medicine)</p>
-                <p className="text-slate-400 text-[10px]">Reg: APMC12345 · 14 yrs experience</p>
+                <h3 className="font-bold text-sm text-slate-900">{doctorDisplayName}</h3>
+                <p className="text-teal-800 font-semibold">General Medicine Practitioner</p>
+                <p className="text-slate-400 text-[10px]">{user?.email || 'Verified Practitioner'}</p>
               </div>
             </div>
             <div className="pt-2 border-t border-slate-100 space-y-1.5 text-slate-600">
-              <div><strong>Clinic:</strong> City Care Clinic, MG Road, Vijayawada</div>
-              <div><strong>Consultation Hours:</strong> Mon - Sat: 9:00 AM - 6:00 PM</div>
-              <div><strong>Consultation Fee:</strong> ₹400 (In-person) / ₹500 (Online)</div>
+              <div><strong>Practice:</strong> Aarogya Healthcare Network</div>
+              <div><strong>Status:</strong> Active & Verified</div>
             </div>
           </div>
         )}

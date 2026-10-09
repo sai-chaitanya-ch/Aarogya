@@ -13,6 +13,7 @@ export interface UserProfile {
   allergies: string[];
   conditions: string[];
   preferredLanguage: Language;
+  email?: string;
   avatarUrl?: string;
   abhaLinked: boolean;
   abhaId?: string;

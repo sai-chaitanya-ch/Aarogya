@@ -332,7 +332,7 @@ function AarogyaAppContent() {
                 <BottomNav
                   activeTab={getActiveBottomTab()}
                   onChangeTab={handleBottomNavChange}
-                  onScanClick={() => setPatientView('scan')}
+                  language={language}
                 />
               )}
             </div>
@@ -351,6 +351,7 @@ function AarogyaAppContent() {
       {/* Emergency SOS Health Card Modal */}
       <EmergencyCardModal
         user={user}
+        reminders={reminders}
         isOpen={isEmergencyCardOpen}
         onClose={() => setIsEmergencyCardOpen(false)}
       />

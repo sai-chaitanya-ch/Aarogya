@@ -1,5 +1,6 @@
 import { Language, MedicalRecord } from '../types';
 import { analyzeDocument, generateAarogyaChatResponse } from './aiService';
+import { supabase } from './supabase';
 
 const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 

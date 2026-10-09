@@ -1,14 +1,15 @@
 import os
 import uuid
 from typing import Optional, List
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from ocr_service import extract_text_from_image
 from gemini_service import structure_medical_document, ask_aarogya_chat
-from storage_service import upload_private_medical_document, generate_signed_url
+from storage_service import upload_private_medical_document, generate_signed_url, get_supabase_client
 
 # Load environment variables
 load_dotenv()
@@ -35,6 +36,44 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+security = HTTPBearer(auto_error=False)
+
+def get_current_user_id(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
+    """
+    Validates Supabase JWT Bearer token sent in Authorization header.
+    Derives user_id directly from the verified Supabase Auth session.
+    Rejects requests without valid tokens with HTTP 401 Unauthorized.
+    """
+    if not credentials or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Please provide a valid Bearer token in the Authorization header."
+        )
+
+    token = credentials.credentials
+    supabase = get_supabase_client()
+    if not supabase:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication verification service is currently unavailable."
+        )
+
+    try:
+        user_response = supabase.auth.get_user(token)
+        if not user_response or not getattr(user_response, 'user', None):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired session token."
+            )
+        return user_response.user.id
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session authentication failed."
+        )
 
 class ChatRequest(BaseModel):
     query: str
@@ -69,8 +108,8 @@ def health_check():
 async def process_document(
     file: Optional[UploadFile] = File(None),
     preset_type: Optional[str] = Form("prescription"),
-    patient_name: Optional[str] = Form("Chaitanya"),
-    user_id: Optional[str] = Form("usr_default_01")
+    patient_name: Optional[str] = Form(None),
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     1. Runs lightweight open-source OCR on uploaded document.
@@ -125,10 +164,17 @@ async def process_document(
     }
 
 @app.post("/api/documents/signed-url")
-def get_signed_url(payload: SignedUrlRequest):
-    """Generates a secure temporary signed URL for a private document path."""
+def get_signed_url(
+    payload: SignedUrlRequest,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Generates a secure temporary signed URL for a private document path belonging to the authenticated user."""
     if not payload.storage_path:
         raise HTTPException(status_code=400, detail="storage_path required")
+    # Restrict signed URL generation to files owned by the caller
+    clean_path = payload.storage_path.strip().lstrip("/")
+    if not clean_path.startswith(f"{user_id}/") and not clean_path.startswith(f"medical-records/{user_id}/"):
+        raise HTTPException(status_code=403, detail="Unauthorized: Access denied to other users' documents")
     url = generate_signed_url(payload.storage_path, payload.expires_in_seconds)
     return {"signed_url": url, "expires_in_seconds": payload.expires_in_seconds}
 

@@ -27,7 +27,8 @@ export const PatientProfileView: React.FC<PatientProfileViewProps> = ({
   onSaveProfile,
   onOpenEmergencyCard,
   onExportSummary,
-  onOpenAuthModal
+  onOpenAuthModal,
+  onSignOut
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(user.name);

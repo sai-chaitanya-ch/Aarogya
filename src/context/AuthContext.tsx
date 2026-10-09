@@ -43,7 +43,7 @@ interface AuthContextType {
   updateUserProfile: (updated: Partial<UserProfile>) => Promise<void>;
   signInWithEmail: (email: string, password: string, selectedRole: UserRole) => Promise<{ success: boolean; error?: string }>;
   signUpWithEmail: (email: string, password: string, name: string, selectedRole: UserRole) => Promise<{ success: boolean; error?: string }>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -257,14 +257,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: false, error: 'Unknown registration error' };
   };
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
     if (!supabase) {
-      return;
+      return { success: false, error: 'Supabase client is not configured.' };
     }
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin }
-    });
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin }
+      });
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Google sign-in failed' };
+    }
   };
 
   const signOut = async () => {
