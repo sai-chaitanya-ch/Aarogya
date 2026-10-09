@@ -147,8 +147,8 @@ Document OCR Text:
 
     # 1. Attempt Gemini first
     if client:
-        # List of candidate Gemini models to try in case specific variant is customized
-        candidate_gemini_models = [target_gemini_model, "gemini-2.0-flash", "gemini-1.5-flash"]
+        # Attempt target Gemini model (gemini-3.8-flash)
+        candidate_gemini_models = [target_gemini_model]
         for g_model in candidate_gemini_models:
             try:
                 contents = [prompt]
@@ -230,8 +230,8 @@ Document OCR Text:
 
 def ask_aarogya_chat(
     query: str,
-    language: str,
-    medical_history_context: str
+    language: str = "en",
+    medical_history_context: str = ""
 ) -> Dict[str, Any]:
     """Handles multilingual conversational copilot queries using Gemini API and Groq."""
     emergency_keywords = ["chest pain", "heart attack", "cannot breathe", "severe bleeding", "unconscious"]
@@ -265,7 +265,7 @@ Guidelines:
     # 1. Attempt Gemini
     client = get_gemini_client()
     target_gemini_model = os.getenv("GEMINI_MODEL", GEMINI_MODEL)
-    candidate_gemini_models = [target_gemini_model, "gemini-2.0-flash", "gemini-1.5-flash"]
+    candidate_gemini_models = [target_gemini_model]
 
     if client:
         for g_model in candidate_gemini_models:
