@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  UserProfile, Language, MedicalRecord, ActiveMedicationReminder, 
-  Appointment, Doctor 
+  Language, MedicalRecord, Appointment, Doctor 
 } from './types';
 import { Header } from './components/common/Header';
 import { PhoneFrame } from './components/common/PhoneFrame';

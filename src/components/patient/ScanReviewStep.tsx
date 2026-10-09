@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   Crop, RotateCw, Sparkles, Edit2, AlertTriangle, 
-  ArrowLeft, Upload, Plus, Trash2, SlidersHorizontal, Camera, Check, AlertCircle, FileText
+  ArrowLeft, Upload, Plus, Trash2, SlidersHorizontal, Camera, AlertCircle, FileText
 } from 'lucide-react';
 import { MedicalRecord, Language, ExtractedMedicine, ExtractedLabValue, DocumentType } from '../../types';
 import { translations } from '../../data/translations';
@@ -663,7 +663,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       {/* Live Camera Scanner Overlay */}
       {showLiveCamera && (
         <LiveCameraScanner
-          onCapture={(blob, previewUrl) => {
+          onCapture={(blob, _previewUrl) => {
             setShowLiveCamera(false);
             const file = new File([blob], `camera_scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
             handleProcessFile(file);

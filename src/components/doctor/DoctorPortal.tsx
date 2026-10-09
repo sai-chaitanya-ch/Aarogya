@@ -37,12 +37,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   // Patients state - initialized empty for real database/authenticated doctor
   const [patients, setPatients] = useState<PatientListItem[]>([]);
   const [patientSearch, setPatientSearch] = useState('');
-  const [patientFilter, setPatientFilter] = useState<'all' | 'followup' | 'recent' | 'chronic'>('all');
+  const [patientFilter, _setPatientFilter] = useState<'all' | 'followup' | 'recent' | 'chronic'>('all');
 
   // Prescription builder state
   const [newMedName, setNewMedName] = useState('');
-  const [newMedDose, setNewMedDose] = useState('1 tab OD');
-  const [newMedDuration, setNewMedDuration] = useState('7 days');
+  const [newMedDose, _setNewMedDose] = useState('1 tab OD');
+  const [newMedDuration, _setNewMedDuration] = useState('7 days');
   const [prescriptionMedicines, setPrescriptionMedicines] = useState<ExtractedMedicine[]>([]);
   const [rxInstructions, setRxInstructions] = useState('');
   const [rxFollowUpDate, setRxFollowUpDate] = useState('');
@@ -112,7 +112,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
         origin: { y: 0.6 },
         colors: ['#0c7c61', '#149575', '#3b82f6']
       });
-    } catch (e) {}
+    } catch {}
 
     alert(`Prescription published successfully and synchronized with ${selectedPatient.name}'s Aarogya app!`);
     setShowCreatePrescription(false);

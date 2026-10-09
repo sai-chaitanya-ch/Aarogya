@@ -307,7 +307,7 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // 4. Index document for RAG search
     try {
       await indexDocumentForRag(inserted.id);
-    } catch (ragErr: any) {
+    } catch (_ragErr: any) {
       setNotificationToast('⚠️ Document saved, but AI search indexing needs retry. RAG is not ready yet.');
     }
   };

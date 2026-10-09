@@ -9,7 +9,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: FRONTEND_ORIGIN
-        value: https://aarogya-for-all.netlify.app
+        value: https://aarogya-for-you.netlify.app
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL

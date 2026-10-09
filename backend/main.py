@@ -29,6 +29,7 @@ app = FastAPI(
 )
 
 origins = {
+    "https://aarogya-for-you.netlify.app",
     "https://aarogya-for-all.netlify.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
