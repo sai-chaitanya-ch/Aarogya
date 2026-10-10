@@ -342,7 +342,7 @@ def test_cross_user_document_cannot_be_indexed_or_retrieved(client, monkeypatch)
             "citations": citations,
             "is_emergency": False,
             "provider": "gemini",
-            "model": "gemini-2.0-flash",
+            "model": "gemini-3.8-flash",
             "fallback_used": False,
         },
     )
@@ -392,7 +392,7 @@ def test_successful_rag_query_returns_grounded_evidence(client, monkeypatch):
             "citations": citations,
             "is_emergency": False,
             "provider": "gemini",
-            "model": "gemini-2.0-flash",
+            "model": "gemini-3.8-flash",
             "fallback_used": False,
         },
     )
@@ -409,6 +409,46 @@ def test_successful_rag_query_returns_grounded_evidence(client, monkeypatch):
     assert len(data["citations"]) == 1
     assert data["citations"][0]["recordId"] == doc_id
     assert data["citations"][0]["documentTitle"] == "Blood Test CBC"
+
+
+def test_process_document_preserves_empty_patient_name_when_absent(client, monkeypatch):
+    """When the document has no extracted patient name, it remains empty and is not prefilled."""
+    user_id = str(uuid.uuid4())
+    mock_supabase = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = user_id
+    mock_supabase.auth.get_user.return_value = MagicMock(user=mock_user)
+    monkeypatch.setattr(main, "get_supabase_client", lambda: mock_supabase)
+
+    monkeypatch.setattr(
+        main,
+        "structure_medical_document",
+        lambda **k: {
+            "document_type": "Lab Report",
+            "patient_name": "",
+            "visit_date": "2026-03-01",
+            "facility_name": "Apollo Clinic",
+            "medicines": [],
+            "lab_values": [{"test_name": "Hemoglobin", "value": "13.5", "unit": "g/dL", "status": "normal"}],
+            "ai_summary": {"en": "Normal blood report."},
+            "_model_provider": "gemini",
+            "_model_name": "gemini-3.8-flash",
+            "_fallback_used": False,
+        },
+    )
+
+    # Send document without form patient_name
+    res = client.post(
+        "/api/documents/process",
+        headers={"Authorization": "Bearer valid_token"},
+        files={"file": ("report.pdf", b"%PDF-1.4 sample pdf content", "application/pdf")},
+        data={"preset_type": "cbc"},
+    )
+    assert res.status_code == 200
+    res_data = res.json()
+    assert res_data["success"] is True
+    assert res_data["data"]["patient_name"] == ""
+    assert res_data["data"]["document_type"] == "Lab Report"
 
 
 def test_cors_policy_allows_canonical_frontend_and_rejects_arbitrary_or_stale_origins(client):

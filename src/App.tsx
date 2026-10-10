@@ -159,203 +159,207 @@ function AarogyaAppContent() {
           </div>
 
           {/* Central Main Application View */}
-          <div className={`flex-1 min-w-0 min-h-0 flex flex-col h-full ${patientView === 'chat' && role === 'patient' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col h-full overflow-hidden">
             {role === 'doctor' ? (
               /* DOCTOR PORTAL WORKFLOW */
-              <DoctorPortal
-                activeTab={doctorTab}
-                onTabChange={setDoctorTab}
-                isVerified={isDoctorVerified}
-                onSwitchToPatient={() => {
-                  setRole('patient');
-                  setPatientView('home');
-                }}
-                onPublishPrescriptionToPatient={(publishedRecord) => {
-                  handleSaveScannedRecord(publishedRecord);
-                }}
-              />
+              <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
+                <DoctorPortal
+                  activeTab={doctorTab}
+                  onTabChange={setDoctorTab}
+                  isVerified={isDoctorVerified}
+                  onSwitchToPatient={() => {
+                    setRole('patient');
+                    setPatientView('home');
+                  }}
+                  onPublishPrescriptionToPatient={(publishedRecord) => {
+                    handleSaveScannedRecord(publishedRecord);
+                  }}
+                />
+              </div>
             ) : (
               /* PATIENT WORKFLOW */
-              <div className={`flex-1 min-h-0 min-w-0 flex flex-col ${patientView === 'chat' ? 'h-full overflow-hidden' : 'justify-between min-h-full'}`}>
-                {/* Step 01 or Step 02 Onboarding */}
-                {onboardingStep !== null ? (
-                <OnboardingSteps
-                  step={onboardingStep}
-                  language={language}
-                  onLanguageSelect={handleLanguageChange}
-                  user={user}
-                  onSaveProfile={updateUserProfile}
-                  onNext={() => {
-                    if (onboardingStep === 1) setOnboardingStep(2);
-                    else {
-                      setOnboardingStep(null);
-                      setPatientView('home');
-                    }
-                  }}
-                  onBack={() => {
-                    if (onboardingStep === 2) setOnboardingStep(1);
-                    else setOnboardingStep(null);
-                  }}
-                />
-              ) : patientView === 'home' ? (
-                /* Patient Home Dashboard */
-                <PatientHome
-                  user={user}
-                  language={language}
-                  records={records}
-                  reminders={reminders}
-                  appointments={appointments}
-                  onNavigate={(v) => {
-                    setChatInitialPrompt('');
-                    setPatientView(v);
-                  }}
-                  onOpenAbhaModal={() => setIsAbhaModalOpen(true)}
-                  onOpenProfile={() => setPatientView('profile')}
-                />
-              ) : patientView === 'scan' ? (
-                /* Scan & Review OCR Pipeline */
-                <ScanReviewStep
-                  language={language}
-                  onSaveRecord={handleSaveScannedRecord}
-                  onCancel={() => setPatientView('home')}
-                  onViewSummary={(rec) => {
-                    setActiveRecordForSummary(rec);
-                    setPatientView('summary');
-                  }}
-                  onOpenAuthModal={() => setIsAuthModalOpen(true)}
-                />
-              ) : patientView === 'summary' ? (
-                /* Understand / Report Summary */
-                (activeRecordForSummary || (records.length > 0 ? records[0] : null)) ? (
-                  <ReportSummaryStep
-                    record={activeRecordForSummary || records[0]}
-                    language={language}
-                    onBack={() => setPatientView('home')}
-                    onAskFollowUp={(question) => {
-                      setChatInitialPrompt(question);
-                      setPatientView('chat');
-                    }}
-                  />
-                ) : (
-                  <div className="flex-1 p-6 flex flex-col items-center justify-center text-center">
-                    <p className="text-xs text-slate-500 mb-3 font-medium">No record selected to summarize.</p>
-                    <button 
-                      onClick={() => setPatientView('library')} 
-                      className="px-4 py-2 bg-teal-700 text-white rounded-xl text-xs font-bold hover:bg-teal-800 transition-colors"
-                    >
-                      Open Medical Library
-                    </button>
-                  </div>
-                )
-              ) : patientView === 'chat' ? (
-                /* Ask Aarogya AI Copilot Chat & Voice */
-                <AskAarogyaChat
-                  language={language}
-                  onLanguageChange={handleLanguageChange}
-                  records={records}
-                  initialPrompt={chatInitialPrompt}
-                  onBack={() => setPatientView('home')}
-                  onViewRecord={(recId) => {
-                    const found = records.find(r => r.id === recId);
-                    if (found) {
-                      setActiveRecordForSummary(found);
-                      setPatientView('summary');
-                    }
-                  }}
-                  onOpenAuthModal={() => setIsAuthModalOpen(true)}
-                />
-              ) : patientView === 'library' ? (
-                /* Medical Library */
-                <MedicalLibrary
-                  records={records}
-                  language={language}
-                  onBack={() => setPatientView('home')}
-                  onOpenRecord={(rec) => {
-                    setActiveRecordForSummary(rec);
-                    setPatientView('summary');
-                  }}
-                  onScanNew={() => setPatientView('scan')}
-                  onDeleteRecord={(id) => deleteRecord(id)}
-                />
-              ) : patientView === 'reminders' ? (
-                /* Medicines & Reminders */
-                <MedicinesReminders
-                  reminders={reminders}
-                  language={language}
-                  onBack={() => setPatientView('home')}
-                  onToggleStatus={toggleReminderStatus}
-                  onAddReminder={addReminder}
-                />
-              ) : patientView === 'appointments' ? (
-                /* Appointments */
-                <AppointmentsList
-                  appointments={appointments}
-                  language={language}
-                  onBack={() => setPatientView('home')}
-                  onBookNew={bookAppointment}
-                  onFindDoctor={() => setPatientView('doctors')}
-                />
-              ) : patientView === 'doctors' ? (
-                /* Find a Doctor */
-                <FindDoctor
-                  language={language}
-                  onBack={() => setPatientView('home')}
-                  onBookDoctor={(doc: Doctor) => {
-                    const newApt: Appointment = {
-                      id: `apt_${Date.now()}`,
-                      patientName: user.name || 'Patient',
-                      patientId: user.id,
-                      doctorName: doc.name,
-                      doctorSpecialty: doc.specialty,
-                      hospitalClinic: doc.clinicName,
-                      date: new Date().toLocaleDateString('en-GB'),
-                      time: '11:00 AM',
-                      type: 'In-person',
-                      status: 'upcoming'
-                    };
-                    bookAppointment(newApt);
-                  }}
-                />
-              ) : patientView === 'trends' ? (
-                /* Health Trends & Timeline */
-                <HealthTrendsView
-                  records={records}
-                  language={language}
-                  onBack={() => setPatientView('home')}
-                  onOpenRecord={(rec) => {
-                    setActiveRecordForSummary(rec);
-                    setPatientView('summary');
-                  }}
-                />
-              ) : patientView === 'profile' ? (
-                /* Patient Profile & Settings with Working Sign Out */
-                <PatientProfileView
-                  user={user}
-                  language={language}
-                  onLanguageChange={handleLanguageChange}
-                  onBack={() => setPatientView('home')}
-                  onOpenAbhaModal={() => setIsAbhaModalOpen(true)}
-                  onSaveProfile={updateUserProfile}
-                  onOpenEmergencyCard={() => setIsEmergencyCardOpen(true)}
-                  onExportSummary={() => exportClinicalSummary(user, records, reminders)}
-                  onOpenAuthModal={() => setIsAuthModalOpen(true)}
-                  onSignOut={signOut}
-                />
-              ) : null}
-
-              {/* Bottom Navigation for Patient on Mobile */}
-              {onboardingStep === null && patientView !== 'scan' && patientView !== 'chat' && (
-                <div className="lg:hidden">
-                  <BottomNav
-                    activeTab={getActiveBottomTab()}
-                    onChangeTab={handleBottomNavChange}
-                    language={language}
-                  />
+              <>
+                <div className={`flex-1 min-h-0 min-w-0 flex flex-col ${patientView === 'chat' ? 'h-full overflow-hidden' : 'overflow-y-auto overscroll-contain'}`}>
+                  {/* Step 01 or Step 02 Onboarding */}
+                  {onboardingStep !== null ? (
+                    <OnboardingSteps
+                      step={onboardingStep}
+                      language={language}
+                      onLanguageSelect={handleLanguageChange}
+                      user={user}
+                      onSaveProfile={updateUserProfile}
+                      onNext={() => {
+                        if (onboardingStep === 1) setOnboardingStep(2);
+                        else {
+                          setOnboardingStep(null);
+                          setPatientView('home');
+                        }
+                      }}
+                      onBack={() => {
+                        if (onboardingStep === 2) setOnboardingStep(1);
+                        else setOnboardingStep(null);
+                      }}
+                    />
+                  ) : patientView === 'home' ? (
+                    /* Patient Home Dashboard */
+                    <PatientHome
+                      user={user}
+                      language={language}
+                      records={records}
+                      reminders={reminders}
+                      appointments={appointments}
+                      onNavigate={(v) => {
+                        setChatInitialPrompt('');
+                        setPatientView(v);
+                      }}
+                      onOpenAbhaModal={() => setIsAbhaModalOpen(true)}
+                      onOpenProfile={() => setPatientView('profile')}
+                    />
+                  ) : patientView === 'scan' ? (
+                    /* Scan & Review OCR Pipeline */
+                    <ScanReviewStep
+                      language={language}
+                      onSaveRecord={handleSaveScannedRecord}
+                      onCancel={() => setPatientView('home')}
+                      onViewSummary={(rec) => {
+                        setActiveRecordForSummary(rec);
+                        setPatientView('summary');
+                      }}
+                      onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                    />
+                  ) : patientView === 'summary' ? (
+                    /* Understand / Report Summary */
+                    (activeRecordForSummary || (records.length > 0 ? records[0] : null)) ? (
+                      <ReportSummaryStep
+                        record={activeRecordForSummary || records[0]}
+                        language={language}
+                        onBack={() => setPatientView('home')}
+                        onAskFollowUp={(question) => {
+                          setChatInitialPrompt(question);
+                          setPatientView('chat');
+                        }}
+                      />
+                    ) : (
+                      <div className="flex-1 p-6 flex flex-col items-center justify-center text-center">
+                        <p className="text-xs text-slate-500 mb-3 font-medium">No record selected to summarize.</p>
+                        <button 
+                          onClick={() => setPatientView('library')} 
+                          className="px-4 py-2 bg-teal-700 text-white rounded-xl text-xs font-bold hover:bg-teal-800 transition-colors"
+                        >
+                          Open Medical Library
+                        </button>
+                      </div>
+                    )
+                  ) : patientView === 'chat' ? (
+                    /* Ask Aarogya AI Copilot Chat & Voice */
+                    <AskAarogyaChat
+                      language={language}
+                      onLanguageChange={handleLanguageChange}
+                      records={records}
+                      initialPrompt={chatInitialPrompt}
+                      onBack={() => setPatientView('home')}
+                      onViewRecord={(recId) => {
+                        const found = records.find(r => r.id === recId);
+                        if (found) {
+                          setActiveRecordForSummary(found);
+                          setPatientView('summary');
+                        }
+                      }}
+                      onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                    />
+                  ) : patientView === 'library' ? (
+                    /* Medical Library */
+                    <MedicalLibrary
+                      records={records}
+                      language={language}
+                      onBack={() => setPatientView('home')}
+                      onOpenRecord={(rec) => {
+                        setActiveRecordForSummary(rec);
+                        setPatientView('summary');
+                      }}
+                      onScanNew={() => setPatientView('scan')}
+                      onDeleteRecord={(id) => deleteRecord(id)}
+                    />
+                  ) : patientView === 'reminders' ? (
+                    /* Medicines & Reminders */
+                    <MedicinesReminders
+                      reminders={reminders}
+                      language={language}
+                      onBack={() => setPatientView('home')}
+                      onToggleStatus={toggleReminderStatus}
+                      onAddReminder={addReminder}
+                    />
+                  ) : patientView === 'appointments' ? (
+                    /* Appointments */
+                    <AppointmentsList
+                      appointments={appointments}
+                      language={language}
+                      onBack={() => setPatientView('home')}
+                      onBookNew={bookAppointment}
+                      onFindDoctor={() => setPatientView('doctors')}
+                    />
+                  ) : patientView === 'doctors' ? (
+                    /* Find a Doctor */
+                    <FindDoctor
+                      language={language}
+                      onBack={() => setPatientView('home')}
+                      onBookDoctor={(doc: Doctor) => {
+                        const newApt: Appointment = {
+                          id: `apt_${Date.now()}`,
+                          patientName: user.name || 'Patient',
+                          patientId: user.id,
+                          doctorName: doc.name,
+                          doctorSpecialty: doc.specialty,
+                          hospitalClinic: doc.clinicName,
+                          date: new Date().toLocaleDateString('en-GB'),
+                          time: '11:00 AM',
+                          type: 'In-person',
+                          status: 'upcoming'
+                        };
+                        bookAppointment(newApt);
+                      }}
+                    />
+                  ) : patientView === 'trends' ? (
+                    /* Health Trends & Timeline */
+                    <HealthTrendsView
+                      records={records}
+                      language={language}
+                      onBack={() => setPatientView('home')}
+                      onOpenRecord={(rec) => {
+                        setActiveRecordForSummary(rec);
+                        setPatientView('summary');
+                      }}
+                    />
+                  ) : patientView === 'profile' ? (
+                    /* Patient Profile & Settings with Working Sign Out */
+                    <PatientProfileView
+                      user={user}
+                      language={language}
+                      onLanguageChange={handleLanguageChange}
+                      onBack={() => setPatientView('home')}
+                      onOpenAbhaModal={() => setIsAbhaModalOpen(true)}
+                      onSaveProfile={updateUserProfile}
+                      onOpenEmergencyCard={() => setIsEmergencyCardOpen(true)}
+                      onExportSummary={() => exportClinicalSummary(user, records, reminders)}
+                      onOpenAuthModal={() => setIsAuthModalOpen(true)}
+                      onSignOut={signOut}
+                    />
+                  ) : null}
                 </div>
-              )}
-            </div>
-          )}
-        </div>
+
+                {/* Bottom Navigation for Patient on Mobile - Stationary Dock */}
+                {onboardingStep === null && patientView !== 'scan' && patientView !== 'chat' && (
+                  <div className="shrink-0 lg:hidden z-20">
+                    <BottomNav
+                      activeTab={getActiveBottomTab()}
+                      onChangeTab={handleBottomNavChange}
+                      language={language}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
         {/* Right Contextual Panel for Chat on XL screens */}
         {role === 'patient' && patientView === 'chat' && (

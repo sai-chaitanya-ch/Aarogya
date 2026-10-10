@@ -79,14 +79,14 @@ function validIsoDate(value?: string): string {
 export async function processDocumentWithBackend(
   file: File | null,
   presetType: 'prescription' | 'cbc' | 'discharge' | 'custom',
-  patientName: string
+  patientName?: string
 ): Promise<{ record: MedicalRecord; rawExtractedText: string; provider: string; model: string; fallbackUsed: boolean }> {
   if (!file) throw new Error('Choose a PDF or image before processing. Sample placeholders are not medical records.');
   const headers = await authenticatedHeaders();
   const form = new FormData();
   form.append('file', file);
   form.append('preset_type', presetType);
-  if (patientName.trim()) form.append('patient_name', patientName.trim());
+  if (patientName && patientName.trim()) form.append('patient_name', patientName.trim());
 
   let response: Response;
   try {
@@ -96,10 +96,27 @@ export async function processDocumentWithBackend(
       body: form,
       signal: AbortSignal.timeout(60000),
     });
-  } catch {
+  } catch (err: any) {
+    if (err?.name === 'TimeoutError' || err?.message?.includes('timeout') || err?.message?.includes('aborted')) {
+      throw new Error('Document processing timed out after 60 seconds. The backend may be warming up or processing a large file. Please retry.');
+    }
     throw new Error('Aarogya document processing is unreachable. Check the backend deployment and try again.');
   }
-  if (!response.ok) throw await responseError(response);
+
+  if (!response.ok) {
+    if (response.status === 503) {
+      let detailMsg = '';
+      try {
+        const body = await response.json();
+        detailMsg = typeof body?.detail === 'string' ? body.detail : '';
+      } catch {}
+      throw new Error(detailMsg || 'AI extraction service is temporarily unavailable or overloaded. You can retry extraction or enter details manually.');
+    }
+    if (response.status === 429) {
+      throw new Error('AI request quota reached. Please wait a moment and retry.');
+    }
+    throw await responseError(response);
+  }
 
   const result = (await response.json()) as BackendProcessResponse;
   if (!result.success || !result.data) throw new Error('The document was not processed. Please retry.');
@@ -135,7 +152,7 @@ export async function processDocumentWithBackend(
     id: `candidate-${crypto.randomUUID()}`,
     title: `${type || 'Medical Document'}${data.facility_name ? ` — ${data.facility_name}` : ''}`,
     documentType,
-    patientName: String(data.patient_name || patientName || ''),
+    patientName: String(data.patient_name || ''),
     visitDate: validIsoDate(data.visit_date),
     doctorName: String(data.doctor_name || ''),
     facilityName: String(data.facility_name || ''),

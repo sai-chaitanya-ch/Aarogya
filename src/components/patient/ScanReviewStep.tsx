@@ -25,6 +25,8 @@ const DOCUMENT_CATEGORIES: DocumentType[] = [
   'Clinical Notes'
 ];
 
+const TODAY_ISO = new Date().toISOString().split('T')[0];
+
 export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   language,
   onSaveRecord,
@@ -33,7 +35,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   onOpenAuthModal
 }) => {
   const t = translations[language];
-  const { user, isAuthenticated } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   // Candidate extraction state & errors
   const [processedRecord, setProcessedRecord] = useState<MedicalRecord | null>(null);
@@ -55,8 +57,8 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const [contrastEnhanced, setContrastEnhanced] = useState(false);
 
   // Extracted fields editable state
-  const [patientName, setPatientName] = useState(user.name || '');
-  const [visitDate, setVisitDate] = useState(new Date().toISOString().split('T')[0]);
+  const [patientName, setPatientName] = useState('');
+  const [visitDate, setVisitDate] = useState('');
   const [doctorName, setDoctorName] = useState('');
   const [facilityName, setFacilityName] = useState('');
   const [docTitle, setDocTitle] = useState('Prescription');
@@ -73,7 +75,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
 
     try {
       const preset = selectedDocType === 'Lab Report' ? 'cbc' : selectedDocType === 'Discharge Summary' ? 'discharge' : 'prescription';
-      const { record, rawExtractedText } = await processDocumentWithBackend(file, preset, patientName);
+      const { record, rawExtractedText } = await processDocumentWithBackend(file, preset);
       
       const candidate: MedicalRecord = {
         ...record,
@@ -84,8 +86,8 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       // Populate candidate field values
       setDocTitle(candidate.title || `${candidate.documentType}${candidate.facilityName ? ` — ${candidate.facilityName}` : ''}`);
       setSelectedDocType(candidate.documentType || selectedDocType);
-      if (candidate.patientName) setPatientName(candidate.patientName);
-      if (candidate.visitDate) setVisitDate(candidate.visitDate);
+      setPatientName(candidate.patientName || '');
+      setVisitDate(candidate.visitDate || '');
       setDoctorName(candidate.doctorName || '');
       setFacilityName(candidate.facilityName || '');
       setMedicines(candidate.medicines || []);
@@ -109,6 +111,18 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       return;
     }
 
+    if (!visitDate || !/^\d{4}-\d{2}-\d{2}$/.test(visitDate.trim())) {
+      setSaveError('Please enter a valid visit / report date before saving.');
+      return;
+    }
+    const parsedDate = new Date(visitDate.trim());
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (parsedDate > today) {
+      setSaveError('Visit date cannot be in the future. Please correct the report date.');
+      return;
+    }
+
     setSaveError(null);
     setIsSaving(true);
 
@@ -117,13 +131,13 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
         id: processedRecord?.id || `rec_${Date.now()}`,
         title: docTitle.trim() || `${selectedDocType}${facilityName ? ` — ${facilityName}` : ''}`,
         documentType: selectedDocType,
-        patientName: patientName.trim() || user.name || 'Patient',
-        visitDate: visitDate || new Date().toISOString().split('T')[0],
+        patientName: patientName.trim(),
+        visitDate: visitDate.trim(),
         doctorName: doctorName.trim(),
         facilityName: facilityName.trim(),
         specialty: processedRecord?.specialty || (selectedDocType === 'Lab Report' ? 'Pathology' : 'General Medicine'),
         status: isEditing ? 'corrected' : 'verified',
-        aiSummary: processedRecord?.aiSummary || { en: 'Document scanned and verified.' },
+        aiSummary: processedRecord?.aiSummary || { en: '' },
         keyFindings: processedRecord?.keyFindings || [],
         medicines: medicines,
         labValues: labValues,
@@ -228,12 +242,24 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
 
         {/* Processing Error Banner */}
         {processingError && (
-          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <div className="font-bold">Extraction notice</div>
-              <div className="text-[11px] text-amber-800 mt-0.5">{processingError}</div>
+          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-start justify-between gap-3 shadow-2xs">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold">Extraction notice</div>
+                <div className="text-[11px] text-amber-800 mt-0.5">{processingError}</div>
+              </div>
             </div>
+            {customFile && (
+              <button
+                type="button"
+                onClick={() => handleProcessFile(customFile)}
+                disabled={isProcessing}
+                className="shrink-0 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-xl transition-colors shadow-xs disabled:opacity-50"
+              >
+                {isProcessing ? 'Retrying...' : 'Retry extraction'}
+              </button>
+            )}
           </div>
         )}
 
@@ -369,10 +395,11 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                   type="text"
                   value={patientName}
                   onChange={e => setPatientName(e.target.value)}
-                  className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none w-44 text-right"
+                  placeholder="Patient name on report"
+                  className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none w-44 text-right placeholder:text-slate-400 placeholder:font-normal"
                 />
               ) : (
-                <span className="font-bold text-slate-800">{patientName}</span>
+                <span className="font-bold text-slate-800">{patientName || 'Not specified'}</span>
               )}
             </div>
 
@@ -383,10 +410,11 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                   type="date"
                   value={visitDate}
                   onChange={e => setVisitDate(e.target.value)}
+                  max={TODAY_ISO}
                   className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none"
                 />
               ) : (
-                <span className="font-bold text-slate-800">{visitDate}</span>
+                <span className="font-bold text-slate-800">{visitDate || 'Not specified'}</span>
               )}
             </div>
 

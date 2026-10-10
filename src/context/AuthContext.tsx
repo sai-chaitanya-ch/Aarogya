@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 import { UserProfile, Language } from '../types';
+import { calculateAgeFromDob } from '../utils/dateUtils';
 
 export type UserRole = 'patient' | 'doctor';
 
@@ -42,7 +43,7 @@ interface AuthContextType {
   configError: string | null;
   isLoading: boolean;
   setRole: (role: UserRole) => void;
-  updateUserProfile: (updated: Partial<UserProfile>) => Promise<void>;
+  updateUserProfile: (updated: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
   signInWithEmail: (email: string, password: string, selectedRole?: UserRole) => Promise<{ success: boolean; error?: string }>;
   signUpWithEmail: (email: string, password: string, name: string, selectedRole: UserRole) => Promise<{ success: boolean; error?: string }>;
   signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
@@ -73,18 +74,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (data && !error) {
+        const calculatedAge = calculateAgeFromDob(data.dob);
         setUser({
           id: data.id,
           name: data.full_name || authUser?.user_metadata?.full_name || 'Patient',
           dob: data.dob || '',
-          age: data.dob ? Math.floor((Date.now() - new Date(data.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 0,
+          age: calculatedAge ?? 0,
           gender: (data.gender as 'male' | 'female' | 'other') || 'other',
           bloodGroup: data.blood_group || '',
           location: data.location || '',
           phone: data.phone || '',
           emergencyContact: data.emergency_contact || '',
-          allergies: data.allergies || [],
-          conditions: data.conditions || [],
+          allergies: Array.isArray(data.allergies) ? data.allergies : [],
+          conditions: Array.isArray(data.conditions) ? data.conditions : [],
           preferredLanguage: (data.preferred_language as Language) || 'en',
           abhaLinked: false
         });
@@ -204,30 +206,89 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const updateUserProfile = async (updated: Partial<UserProfile>) => {
-    setUser(prev => {
-      const next = { ...prev, ...updated };
-      return next;
-    });
-
-    // Sync to Supabase if connected
+  const updateUserProfile = async (
+    updated: Partial<UserProfile>
+  ): Promise<{ success: boolean; error?: string }> => {
+    // Sync to Supabase if connected and authenticated
     if (supabase && isAuthenticated && user.id) {
       try {
-        await supabase.from('profiles').upsert({
-          id: user.id,
-          full_name: updated.name ?? user.name,
-          blood_group: updated.bloodGroup ?? user.bloodGroup,
-          phone: updated.phone ?? user.phone,
-          location: updated.location ?? user.location,
-          emergency_contact: updated.emergencyContact ?? user.emergencyContact,
-          preferred_language: updated.preferredLanguage ?? user.preferredLanguage,
-          allergies: updated.allergies ?? user.allergies,
-          conditions: updated.conditions ?? user.conditions,
+        const updatePayload: Record<string, any> = {
           updated_at: new Date().toISOString()
+        };
+
+        if (updated.name !== undefined) updatePayload.full_name = updated.name.trim();
+        if (updated.dob !== undefined) updatePayload.dob = updated.dob.trim() ? updated.dob.trim() : null;
+        if (updated.gender !== undefined) updatePayload.gender = updated.gender;
+        if (updated.bloodGroup !== undefined) updatePayload.blood_group = updated.bloodGroup.trim() ? updated.bloodGroup.trim() : null;
+        if (updated.phone !== undefined) updatePayload.phone = updated.phone.trim() ? updated.phone.trim() : null;
+        if (updated.location !== undefined) updatePayload.location = updated.location.trim() ? updated.location.trim() : null;
+        if (updated.emergencyContact !== undefined) updatePayload.emergency_contact = updated.emergencyContact.trim() ? updated.emergencyContact.trim() : null;
+        if (updated.allergies !== undefined) updatePayload.allergies = updated.allergies;
+        if (updated.conditions !== undefined) updatePayload.conditions = updated.conditions;
+        if (updated.preferredLanguage !== undefined) updatePayload.preferred_language = updated.preferredLanguage;
+
+        const { data: updateData, error: updateError } = await supabase
+          .from('profiles')
+          .update(updatePayload)
+          .eq('id', user.id)
+          .select('id');
+
+        if (updateError) {
+          console.error('Supabase profile update failed:', updateError);
+          return { success: false, error: updateError.message };
+        }
+
+        // If no row was updated (row didn't exist), fallback to upserting full profile
+        if (!updateData || updateData.length === 0) {
+          const fullPayload = {
+            id: user.id,
+            full_name: updated.name !== undefined ? updated.name.trim() : (user.name || 'Patient'),
+            dob: updated.dob !== undefined ? (updated.dob.trim() || null) : (user.dob || null),
+            gender: updated.gender !== undefined ? updated.gender : user.gender,
+            blood_group: updated.bloodGroup !== undefined ? (updated.bloodGroup.trim() || null) : (user.bloodGroup || null),
+            phone: updated.phone !== undefined ? (updated.phone.trim() || null) : (user.phone || null),
+            location: updated.location !== undefined ? (updated.location.trim() || null) : (user.location || null),
+            emergency_contact: updated.emergencyContact !== undefined ? (updated.emergencyContact.trim() || null) : (user.emergencyContact || null),
+            allergies: updated.allergies !== undefined ? updated.allergies : user.allergies,
+            conditions: updated.conditions !== undefined ? updated.conditions : user.conditions,
+            preferred_language: updated.preferredLanguage !== undefined ? updated.preferredLanguage : user.preferredLanguage,
+            updated_at: new Date().toISOString()
+          };
+          const { error: upsertError } = await supabase.from('profiles').upsert(fullPayload);
+          if (upsertError) {
+            console.error('Supabase profile upsert fallback failed:', upsertError);
+            return { success: false, error: upsertError.message };
+          }
+        }
+
+        // Successfully saved to Supabase; now update local in-memory state with recalculation of age
+        setUser(prev => {
+          const nextDob = updated.dob !== undefined ? updated.dob : prev.dob;
+          const nextAge = calculateAgeFromDob(nextDob) ?? 0;
+          return {
+            ...prev,
+            ...updated,
+            age: nextAge
+          };
         });
-      } catch (err) {
-        console.warn('Error saving profile to Supabase:', err);
+
+        return { success: true };
+      } catch (err: any) {
+        console.error('Error saving profile to Supabase:', err);
+        return { success: false, error: err?.message || 'Failed to update profile.' };
       }
+    } else {
+      // Local/offline update
+      setUser(prev => {
+        const nextDob = updated.dob !== undefined ? updated.dob : prev.dob;
+        const nextAge = calculateAgeFromDob(nextDob) ?? 0;
+        return {
+          ...prev,
+          ...updated,
+          age: nextAge
+        };
+      });
+      return { success: true };
     }
   };
 
