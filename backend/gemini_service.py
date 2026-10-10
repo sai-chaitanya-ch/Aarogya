@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -20,14 +22,32 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=False)
 
 logger = logging.getLogger("aarogya.models")
 
-GEMINI_MODEL_DEFAULT = "gemini-2.0-flash"
-GEMINI_MODEL_BACKUP = "gemini-1.5-flash"
+GEMINI_MODEL_DEFAULT = "gemini-3.8-flash"
+GEMINI_MODELS_DEFAULT = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash"
 GROQ_MODELS_DEFAULT = "llama-3.3-70b-versatile,llama-3.1-8b-instant"
+
+DEPRECATED_GEMINI_MODELS = {
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-pro",
+    "gemini-1.0-pro",
+}
+
+DEPRECATED_GROQ_MODELS = {
+    "mixtral-8x7b-32768",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-120b",
+}
+
 GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "8.0"))
 GROQ_TIMEOUT_SECONDS = float(os.getenv("GROQ_TIMEOUT_SECONDS", "10.0"))
+
+MAX_GEMINI_RETRIES = 2
+MAX_GROQ_RETRIES = 1
 
 _HTTP_CLIENT: Optional[httpx.Client] = None
 
@@ -47,7 +67,7 @@ class ModelUnavailableError(RuntimeError):
 
 
 class QuotaExhaustedError(RuntimeError):
-    """Raised when an API key's quota is exhausted or rate limited (HTTP 429/403)."""
+    """Raised when an API key's quota is exhausted or rate limited (HTTP 429)."""
 
 
 @dataclass
@@ -59,32 +79,65 @@ class ModelResult:
 
 
 def _csv_env(name: str, default: str) -> List[str]:
-    return list(dict.fromkeys(item.strip() for item in os.getenv(name, default).split(",") if item.strip()))
+    val = os.getenv(name, default)
+    return list(dict.fromkeys(item.strip() for item in val.split(",") if item.strip()))
 
 
 def get_candidate_gemini_models() -> List[str]:
+    """Return deterministic, non-deprecated Gemini candidate list."""
     configured = os.getenv("GEMINI_MODELS", "").strip()
     if configured:
-        candidates = _csv_env("GEMINI_MODELS", "")
+        raw = _csv_env("GEMINI_MODELS", "")
     else:
-        primary = os.getenv("GEMINI_MODEL", GEMINI_MODEL_DEFAULT).strip()
-        candidates = [primary] if primary else []
-    for model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]:
-        if model not in candidates:
-            candidates.append(model)
+        primary = os.getenv("GEMINI_MODEL", "").strip()
+        if primary:
+            raw = [primary] + _csv_env("GEMINI_MODELS_DEFAULT", GEMINI_MODELS_DEFAULT)
+        else:
+            raw = _csv_env("GEMINI_MODELS_DEFAULT", GEMINI_MODELS_DEFAULT)
+
+    candidates: List[str] = []
+    for model in raw:
+        m = model.strip()
+        if m and m not in DEPRECATED_GEMINI_MODELS and m not in candidates:
+            candidates.append(m)
+
+    if not candidates:
+        candidates = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash"]
     return candidates
 
 
 def get_candidate_groq_models() -> List[str]:
+    """Return deterministic, non-deprecated Groq candidate list."""
     configured = os.getenv("GROQ_MODELS", "").strip()
     if configured:
-        models = _csv_env("GROQ_MODELS", "")
+        raw = _csv_env("GROQ_MODELS", "")
     else:
-        models = _csv_env("GROQ_MODELS", GROQ_MODELS_DEFAULT)
-    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]:
-        if model not in models:
-            models.append(model)
+        raw = _csv_env("GROQ_MODELS", GROQ_MODELS_DEFAULT)
+
+    models: List[str] = []
+    for model in raw:
+        m = model.strip()
+        if m and m not in DEPRECATED_GROQ_MODELS and m not in models:
+            models.append(m)
+
+    if not models:
+        models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
     return models
+
+
+def _is_transient_status(status_code: int) -> bool:
+    return status_code in (503, 502, 500, 408)
+
+
+def _parse_retry_after(response: httpx.Response) -> Optional[float]:
+    header = response.headers.get("retry-after")
+    if not header:
+        return None
+    try:
+        val = float(header.strip())
+        return max(0.1, min(val, 4.0))
+    except ValueError:
+        return None
 
 
 def _call_gemini(
@@ -114,32 +167,73 @@ def _call_gemini(
 
     timeout = GEMINI_TIMEOUT_SECONDS if not image_bytes else 30.0
     client = get_http_client()
-    try:
-        response = client.post(
-            GEMINI_GENERATE_URL.format(model=model),
-            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json=payload,
-            timeout=httpx.Timeout(timeout, connect=3.0),
-        )
-        if response.status_code in (429, 403):
-            logger.warning("Gemini quota exhausted or rate limited: model=%s status=%s", model, response.status_code)
-            raise QuotaExhaustedError(f"Gemini quota exhausted ({response.status_code})")
-        if response.status_code >= 400:
-            # Do not log response bodies; they can contain request or account data.
-            logger.warning("Gemini request failed: model=%s status=%s", model, response.status_code)
+
+    for attempt in range(MAX_GEMINI_RETRIES + 1):
+        try:
+            response = client.post(
+                GEMINI_GENERATE_URL.format(model=model),
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json=payload,
+                timeout=httpx.Timeout(timeout, connect=3.0),
+            )
+
+            # 429 indicates quota exhaustion / rate limiting; fast failover to backup providers
+            if response.status_code == 429:
+                logger.warning("Gemini quota exhausted or rate limited (429): model=%s", model)
+                raise QuotaExhaustedError("Gemini quota exhausted (429)")
+
+            # 401 / 403 indicates invalid API key or lack of permissions; do not retry
+            if response.status_code in (401, 403):
+                logger.warning("Gemini authorization failure (HTTP %s): check GEMINI_API_KEY for model=%s", response.status_code, model)
+                return None
+
+            # 404 indicates model does not exist or was decommissioned; immediately advance to next model
+            if response.status_code == 404:
+                logger.warning("Gemini model not found (404): model=%s", model)
+                return None
+
+            # 400 indicates malformed payload / bad request; do not retry
+            if response.status_code == 400:
+                logger.warning("Gemini malformed request (400): model=%s", model)
+                return None
+
+            # 503, 502, 500, 408 are transient; retry with bounded backoff
+            if _is_transient_status(response.status_code):
+                if attempt < MAX_GEMINI_RETRIES:
+                    delay = _parse_retry_after(response) or min(2.5, 0.4 * (2 ** attempt) + random.uniform(0.05, 0.15))
+                    logger.info("Transient Gemini %s on model=%s; retrying in %.2fs (attempt %d/%d)", response.status_code, model, delay, attempt + 1, MAX_GEMINI_RETRIES)
+                    time.sleep(delay)
+                    continue
+                logger.warning("Gemini transient failure exhausted retries: model=%s status=%s", model, response.status_code)
+                return None
+
+            if response.status_code >= 400:
+                logger.warning("Gemini request failed: model=%s status=%s", model, response.status_code)
+                return None
+
+            data = response.json()
+            candidates = data.get("candidates") or []
+            if not candidates:
+                return None
+            text_parts = candidates[0].get("content", {}).get("parts", [])
+            text = "\n".join(part.get("text", "") for part in text_parts if part.get("text"))
+            return text.strip() or None
+
+        except QuotaExhaustedError:
+            raise
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as net_err:
+            if attempt < MAX_GEMINI_RETRIES:
+                delay = min(2.5, 0.4 * (2 ** attempt) + random.uniform(0.05, 0.15))
+                logger.info("Transient network error (%s) on model=%s; retrying in %.2fs", type(net_err).__name__, model, delay)
+                time.sleep(delay)
+                continue
+            logger.warning("Gemini network error exhausted retries: model=%s error=%s", model, type(net_err).__name__)
             return None
-        data = response.json()
-        candidates = data.get("candidates") or []
-        if not candidates:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("Gemini request failed: model=%s error_type=%s", model, type(exc).__name__)
             return None
-        text_parts = candidates[0].get("content", {}).get("parts", [])
-        text = "\n".join(part.get("text", "") for part in text_parts if part.get("text"))
-        return text.strip() or None
-    except QuotaExhaustedError:
-        raise
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-        logger.warning("Gemini request failed: model=%s error_type=%s", model, type(exc).__name__)
-        return None
+
+    return None
 
 
 def _call_groq(
@@ -165,24 +259,42 @@ def _call_groq(
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
     client = get_http_client()
-    try:
-        response = client.post(
-            GROQ_CHAT_URL,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-            timeout=httpx.Timeout(GROQ_TIMEOUT_SECONDS, connect=3.0),
-        )
-        if response.status_code >= 400:
-            logger.warning("Groq request failed: model=%s status=%s", model, response.status_code)
+
+    for attempt in range(MAX_GROQ_RETRIES + 1):
+        try:
+            response = client.post(
+                GROQ_CHAT_URL,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=httpx.Timeout(GROQ_TIMEOUT_SECONDS, connect=3.0),
+            )
+            if response.status_code in (400, 401, 403, 404, 429):
+                logger.warning("Groq request rejected: model=%s status=%s", model, response.status_code)
+                return None
+            if _is_transient_status(response.status_code):
+                if attempt < MAX_GROQ_RETRIES:
+                    delay = _parse_retry_after(response) or 1.0
+                    time.sleep(delay)
+                    continue
+                return None
+            if response.status_code >= 400:
+                logger.warning("Groq request failed: model=%s status=%s", model, response.status_code)
+                return None
+            choices = response.json().get("choices") or []
+            if not choices:
+                return None
+            text = choices[0].get("message", {}).get("content")
+            return text.strip() if isinstance(text, str) and text.strip() else None
+        except (httpx.TimeoutException, httpx.ConnectError) as net_err:
+            if attempt < MAX_GROQ_RETRIES:
+                time.sleep(1.0)
+                continue
+            logger.warning("Groq network error: model=%s error=%s", model, type(net_err).__name__)
             return None
-        choices = response.json().get("choices") or []
-        if not choices:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            logger.warning("Groq request failed: model=%s error_type=%s", model, type(exc).__name__)
             return None
-        text = choices[0].get("message", {}).get("content")
-        return text.strip() if isinstance(text, str) and text.strip() else None
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-        logger.warning("Groq request failed: model=%s error_type=%s", model, type(exc).__name__)
-        return None
+    return None
 
 
 def generate_text(
@@ -215,8 +327,11 @@ def generate_text(
             break
 
     # Groq text models cannot be assumed to read images; only use them after OCR text exists.
+    if image_bytes and not allow_groq:
+        raise ModelUnavailableError("Gemini vision is unavailable. Please retry or use a readable document with selectable text.")
     if not allow_groq:
         raise ModelUnavailableError("Gemini vision is unavailable. Please retry or use a readable document with selectable text.")
+
     for model in get_candidate_groq_models():
         attempts += 1
         text = _call_groq(prompt, system_instruction, model, json_mode, max_output_tokens=max_output_tokens)

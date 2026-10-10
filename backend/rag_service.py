@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -35,7 +37,7 @@ def get_rag_http_client() -> httpx.Client:
     global _RAG_HTTP_CLIENT
     if _RAG_HTTP_CLIENT is None or _RAG_HTTP_CLIENT.is_closed:
         _RAG_HTTP_CLIENT = httpx.Client(
-            timeout=httpx.Timeout(6.0, connect=3.0),
+            timeout=httpx.Timeout(15.0, connect=3.0),
             limits=httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=60.0),
         )
     return _RAG_HTTP_CLIENT
@@ -61,24 +63,52 @@ def _embed(text: str, task_type: str) -> List[float]:
         "embedContentConfig": embed_config,
     }
     client = get_rag_http_client()
-    try:
-        response = client.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{EMBEDDING_MODEL}:embedContent",
-            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json=payload,
-            timeout=httpx.Timeout(6.0, connect=3.0),
-        )
-        if response.status_code >= 400:
-            logger.warning("Embedding request failed: status=%s model=%s", response.status_code, EMBEDDING_MODEL)
-            raise RagUnavailableError(f"Embedding provider returned HTTP {response.status_code}.")
-        values = response.json().get("embedding", {}).get("values")
-        if not isinstance(values, list) or len(values) != EMBEDDING_DIMENSIONS:
-            raise RagUnavailableError("Embedding provider returned an unexpected vector size.")
-        return [float(value) for value in values]
-    except (httpx.HTTPError, ValueError, TypeError) as exc:
-        if isinstance(exc, RagUnavailableError):
-            raise
-        raise RagUnavailableError("Embedding provider request failed.") from exc
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{EMBEDDING_MODEL}:embedContent"
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=httpx.Timeout(15.0, connect=3.0),
+            )
+            if response.status_code in {500, 502, 503, 504, 408} and attempt < max_retries:
+                retry_after_hdr = response.headers.get("Retry-After")
+                if retry_after_hdr and retry_after_hdr.strip().isdigit():
+                    delay = min(4.0, max(1.0, float(retry_after_hdr.strip())))
+                else:
+                    delay = (1.0 if attempt == 0 else 2.0) + random.uniform(0.1, 0.4)
+                logger.warning(
+                    "Embedding request transient error HTTP %s, retrying in %.2fs (attempt %d/%d)",
+                    response.status_code, delay, attempt + 1, max_retries
+                )
+                time.sleep(delay)
+                continue
+
+            if response.status_code >= 400:
+                logger.warning("Embedding request failed: status=%s model=%s", response.status_code, EMBEDDING_MODEL)
+                raise RagUnavailableError(f"Embedding provider returned HTTP {response.status_code}.")
+
+            values = response.json().get("embedding", {}).get("values")
+            if not isinstance(values, list) or len(values) != EMBEDDING_DIMENSIONS:
+                raise RagUnavailableError("Embedding provider returned an unexpected vector size.")
+            return [float(value) for value in values]
+        except (httpx.TimeoutException, httpx.NetworkError) as exc:
+            if attempt < max_retries:
+                delay = (1.0 if attempt == 0 else 2.0) + random.uniform(0.1, 0.4)
+                logger.warning("Embedding request network/timeout error %s, retrying in %.2fs", exc, delay)
+                time.sleep(delay)
+                continue
+            raise RagUnavailableError("Embedding provider request timed out or network error.") from exc
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            if isinstance(exc, RagUnavailableError):
+                raise
+            raise RagUnavailableError("Embedding provider request failed.") from exc
+
+    raise RagUnavailableError("Embedding provider unavailable after retries.")
 
 
 def _vector_literal(values: List[float]) -> str:

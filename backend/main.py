@@ -152,8 +152,9 @@ async def process_document(
     provider = result.pop("_model_provider", "unknown")
     model = result.pop("_model_name", "unknown")
     fallback = bool(result.pop("_fallback_used", False))
-    if patient_name and not result.get("patient_name"):
-        result["patient_name"] = patient_name.strip()[:160]
+    # Never assume the logged-in user is the patient named on the document.
+    # Preserve only what was actually extracted from the document; leave empty if absent.
+    result["patient_name"] = (result.get("patient_name") or "").strip()[:160]
     # Reflect document type hint only when model could not classify confidently; never invent content.
     hint_map = {"prescription": "Prescription", "cbc": "Lab Report", "discharge": "Discharge Summary"}
     if result.get("document_type") == "Clinical Notes" and preset_type in hint_map:
