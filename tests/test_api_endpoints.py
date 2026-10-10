@@ -410,3 +410,47 @@ def test_successful_rag_query_returns_grounded_evidence(client, monkeypatch):
     assert data["citations"][0]["recordId"] == doc_id
     assert data["citations"][0]["documentTitle"] == "Blood Test CBC"
 
+
+def test_cors_policy_allows_canonical_frontend_and_rejects_arbitrary_or_stale_origins(client):
+    """CORS must allow https://aarogya-for-you.netlify.app and local dev, but reject stale and arbitrary origins."""
+    # 1. Allowed canonical production origin
+    res_canonical = client.options(
+        "/api/chat",
+        headers={
+            "Origin": "https://aarogya-for-you.netlify.app",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert res_canonical.headers.get("access-control-allow-origin") == "https://aarogya-for-you.netlify.app"
+
+    # 2. Allowed local development origin
+    res_local = client.options(
+        "/api/chat",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert res_local.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+    # 3. Disallowed stale domain
+    res_stale = client.options(
+        "/api/chat",
+        headers={
+            "Origin": "https://aarogya-for-all.netlify.app",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert res_stale.headers.get("access-control-allow-origin") is None
+
+    # 4. Disallowed arbitrary origin
+    res_arbitrary = client.options(
+        "/api/chat",
+        headers={
+            "Origin": "https://malicious-healthcare-phish.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+    assert res_arbitrary.headers.get("access-control-allow-origin") is None
+
+

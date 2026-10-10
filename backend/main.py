@@ -28,18 +28,26 @@ app = FastAPI(
     version="2.0.0",
 )
 
-origins = {
+DEFAULT_ALLOWED_ORIGINS = {
     "https://aarogya-for-you.netlify.app",
-    "https://aarogya-for-all.netlify.app",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
 }
-if os.getenv("FRONTEND_ORIGIN", "").strip():
-    origins.add(os.getenv("FRONTEND_ORIGIN", "").strip().rstrip("/"))
+
+origins = set(DEFAULT_ALLOWED_ORIGINS)
+frontend_origin = os.getenv("FRONTEND_ORIGIN", "").strip().rstrip("/")
+if frontend_origin:
+    origins.add(frontend_origin)
+
 for value in os.getenv("ADDITIONAL_ALLOWED_ORIGINS", "").split(","):
-    if value.strip():
-        origins.add(value.strip().rstrip("/"))
+    cleaned = value.strip().rstrip("/")
+    if cleaned:
+        origins.add(cleaned)
+
+# Never allow wildcard "*" to prevent arbitrary origins from accessing authenticated endpoints
+origins.discard("*")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(origins),
