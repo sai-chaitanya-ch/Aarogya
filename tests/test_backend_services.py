@@ -51,3 +51,57 @@ def test_model_router_falls_back_from_gemini_to_groq(monkeypatch):
 def test_emergency_query_is_detected_without_model_call():
     assert gemini_service.is_emergency_query("I have severe chest pain") is True
     assert gemini_service.is_emergency_query("What does hemoglobin mean?") is False
+
+
+def test_conversational_query_bypasses_rag_retrieval():
+    """Greetings and pleasantries bypass embedding generation and vector search completely."""
+    res = rag_service.retrieve_relevant_chunks("dummy_user", "Hello")
+    assert res["hits"] == []
+    assert res["mode"] == "conversational"
+
+
+def test_no_documents_precheck_bypasses_embedding(monkeypatch):
+    """When user has 0 records in database, vector embedding is never called."""
+    mock_supabase = __import__("unittest.mock").mock.MagicMock()
+    # Return empty list for select('id').eq('patient_id', ...).limit(1)
+    mock_supabase.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = (
+        __import__("unittest.mock").mock.MagicMock(data=[])
+    )
+    monkeypatch.setattr(rag_service, "get_supabase_client", lambda: mock_supabase)
+
+    embed_called = []
+    monkeypatch.setattr(rag_service, "_embed", lambda *a: embed_called.append(True) or [0.1] * 768)
+
+    res = rag_service.retrieve_relevant_chunks("user_no_docs", "What is my cholesterol level?")
+    assert res["hits"] == []
+    assert res["mode"] == "no_documents"
+    assert len(embed_called) == 0  # _embed was never called!
+
+
+def test_gemini_quota_exhausted_fast_failover_to_groq(monkeypatch):
+    """When Gemini returns 429/403, remaining Gemini models are skipped and Groq is immediately used."""
+    gemini_calls = []
+    groq_calls = []
+
+    monkeypatch.setenv("GEMINI_MODELS", "gemini-2.0-flash,gemini-1.5-flash,gemini-2.0-flash-lite")
+    monkeypatch.setenv("GROQ_MODELS", "llama-3.3-70b-versatile")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GROQ_API_KEY", "test-key")
+
+    def mock_gemini(*args, **kwargs):
+        gemini_calls.append(args[2])
+        raise gemini_service.QuotaExhaustedError("Rate limited 429")
+
+    def mock_groq(*args, **kwargs):
+        groq_calls.append(args[2])
+        return "Fast response from Groq."
+
+    monkeypatch.setattr(gemini_service, "_call_gemini", mock_gemini)
+    monkeypatch.setattr(gemini_service, "_call_groq", mock_groq)
+
+    result = gemini_service.generate_text("query", system_instruction="system")
+    assert result.provider == "groq"
+    assert result.text == "Fast response from Groq."
+    assert len(gemini_calls) == 1  # Only 1 Gemini call before immediate failover, skipped remaining 2!
+    assert len(groq_calls) == 1
+

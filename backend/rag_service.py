@@ -28,6 +28,18 @@ CHUNK_OVERLAP = max(100, min(int(os.getenv("RAG_CHUNK_OVERLAP", "200")), CHUNK_S
 TOP_K = max(1, min(int(os.getenv("RAG_TOP_K", "5")), 8))
 MIN_SIMILARITY = float(os.getenv("RAG_MIN_SIMILARITY", "0.20"))
 
+_RAG_HTTP_CLIENT: Optional[httpx.Client] = None
+
+
+def get_rag_http_client() -> httpx.Client:
+    global _RAG_HTTP_CLIENT
+    if _RAG_HTTP_CLIENT is None or _RAG_HTTP_CLIENT.is_closed:
+        _RAG_HTTP_CLIENT = httpx.Client(
+            timeout=httpx.Timeout(6.0, connect=3.0),
+            limits=httpx.Limits(max_keepalive_connections=10, max_connections=20, keepalive_expiry=60.0),
+        )
+    return _RAG_HTTP_CLIENT
+
 
 class RagUnavailableError(RuntimeError):
     pass
@@ -48,13 +60,14 @@ def _embed(text: str, task_type: str) -> List[float]:
         "content": {"parts": [{"text": text[:12000]}]},
         "embedContentConfig": embed_config,
     }
+    client = get_rag_http_client()
     try:
-        with httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
-            response = client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{EMBEDDING_MODEL}:embedContent",
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json=payload,
-            )
+        response = client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{EMBEDDING_MODEL}:embedContent",
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json=payload,
+            timeout=httpx.Timeout(6.0, connect=3.0),
+        )
         if response.status_code >= 400:
             logger.warning("Embedding request failed: status=%s model=%s", response.status_code, EMBEDDING_MODEL)
             raise RagUnavailableError(f"Embedding provider returned HTTP {response.status_code}.")
@@ -216,11 +229,35 @@ def _lexical_retrieval(user_id: str, query: str, limit: int) -> List[Dict[str, A
     return candidates[:limit]
 
 
+def _is_conversational_query(query: str) -> bool:
+    q = query.strip().casefold()
+    conversational = {
+        "hi", "hello", "hey", "hola", "namaste", "vanakkam", "namaskaram",
+        "good morning", "good afternoon", "good evening", "good night",
+        "how are you", "who are you", "what can you do", "what is aarogya",
+        "tell me about yourself", "help", "thanks", "thank you", "bye", "goodbye"
+    }
+    return q in conversational or len(q) < 4
+
+
 def retrieve_relevant_chunks(user_id: str, query: str, limit: int = TOP_K) -> Dict[str, Any]:
     """Return only chunks owned by user_id, with lexical fallback if vector search fails."""
+    # Fast path 1: conversational greetings never require scanning medical documents
+    if _is_conversational_query(query):
+        return {"hits": [], "mode": "conversational"}
+
     client = get_supabase_client()
     if not client:
         raise RagUnavailableError("Supabase service is not configured on the backend.")
+
+    # Fast path 2: verify the user has any medical records before invoking embedding models
+    try:
+        doc_check = client.table("medical_documents").select("id").eq("patient_id", user_id).limit(1).execute()
+        if not (doc_check.data and len(doc_check.data) > 0):
+            return {"hits": [], "mode": "no_documents"}
+    except Exception as exc:
+        logger.warning("Document pre-check failed: error_type=%s", type(exc).__name__)
+
     try:
         query_vector = _embed(query, "RETRIEVAL_QUERY")
         response = client.rpc("match_aarogya_document_chunks", {
