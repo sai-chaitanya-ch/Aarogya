@@ -74,7 +74,7 @@ export const ReportSummaryStep: React.FC<ReportSummaryStepProps> = ({
   };
 
   return (
-    <div className="flex-1 p-4 bg-[#f8faf9] flex flex-col justify-between min-h-[680px]">
+    <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 bg-[#f8faf9] flex flex-col justify-between min-h-[500px] max-w-4xl w-full mx-auto">
       <div>
         {/* Header matching mockup */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -238,7 +238,9 @@ export const ReportSummaryStep: React.FC<ReportSummaryStepProps> = ({
                       {item.value}
                     </div>
                     <span className={`inline-block text-[9px] font-bold px-1.5 py-0.2 rounded mt-0.5 ${
-                      item.status === 'normal' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'
+                      item.status === 'normal' ? 'bg-emerald-100 text-emerald-800' :
+                      item.status === 'unknown' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
+                      'bg-red-100 text-red-700'
                     }`}>
                       {item.status.toUpperCase()}
                     </span>
@@ -278,6 +280,7 @@ export const ReportSummaryStep: React.FC<ReportSummaryStepProps> = ({
                         <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
                           lv.status === 'low' ? 'bg-red-100 text-red-700' :
                           lv.status === 'high' ? 'bg-amber-100 text-amber-700' :
+                          lv.status === 'unknown' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
                           'bg-emerald-100 text-emerald-800'
                         }`}>
                           {lv.status.toUpperCase()}

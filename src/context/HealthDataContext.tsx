@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase';
+import { indexDocumentForRag } from '../services/api';
 import { useAuth } from './AuthContext';
-import { MedicalRecord, ActiveMedicationReminder, Appointment } from '../types';
+import { MedicalRecord, ActiveMedicationReminder, Appointment, AddRecordResult } from '../types';
 
 interface HealthDataContextType {
   records: MedicalRecord[];
@@ -10,7 +11,7 @@ interface HealthDataContextType {
   isLoading: boolean;
   dbError: string | null;
   refetchData: () => Promise<void>;
-  addRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<void>;
+  addRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<AddRecordResult>;
   updateRecord: (id: string, updated: Partial<MedicalRecord>) => Promise<void>;
   deleteRecord: (id: string) => Promise<void>;
   toggleReminderStatus: (id: string, newStatus: 'taken' | 'skipped' | 'pending') => Promise<void>;
@@ -198,100 +199,135 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addRecord = async (newRecord: MedicalRecord, fileBlob?: File | Blob) => {
     const client = supabase;
     if (!client || !isAuthenticated || !user.id) {
-      // In unauthenticated context, do not store
-      return;
+      throw new Error('Sign in to save medical records.');
     }
 
-    let storagePath = '';
-    let signedUrl = '';
+    if (!fileBlob) {
+      throw new Error('Medical document file is required. Placeholders or empty files cannot be stored.');
+    }
 
-    // Handle real file upload to private Supabase Storage
-    if (fileBlob) {
+    const cleanName = (fileBlob as File).name?.replace(/[^a-zA-Z0-9._-]/g, '_') || `scan_${Date.now()}.jpg`;
+    const uniqueFileName = `${Date.now()}_${cleanName}`;
+    const storagePath = `${user.id}/${uniqueFileName}`;
+    const mimeType = fileBlob.type || 'image/jpeg';
+    const fileSizeBytes = fileBlob.size;
+
+    // 1. Upload bytes to medical-records/${user.id}/${uniqueFileName}
+    const { error: uploadError } = await client.storage
+      .from('medical-records')
+      .upload(storagePath, fileBlob, {
+        contentType: mimeType,
+        upsert: false
+      });
+
+    if (uploadError) {
+      throw new Error(`Document upload to secure storage failed: ${uploadError.message}`);
+    }
+
+    // 2. Upsert profile row to ensure foreign key constraint is satisfied
+    const { error: profileError } = await client.from('profiles').upsert({
+      id: user.id,
+      full_name: user.name || 'Patient',
+      preferred_language: user.preferredLanguage || 'en'
+    }, { onConflict: 'id' });
+
+    if (profileError) {
       try {
-        const cleanName = (fileBlob as File).name?.replace(/[^a-zA-Z0-9._-]/g, '_') || `scan_${Date.now()}.jpg`;
-        storagePath = `${user.id}/${Date.now()}_${cleanName}`;
-        const { error: uploadError } = await client.storage
-          .from('medical-records')
-          .upload(storagePath, fileBlob, {
-            contentType: fileBlob.type || 'image/jpeg',
-            upsert: true
-          });
-
-        if (!uploadError) {
-          const { data: signData } = await client.storage
-            .from('medical-records')
-            .createSignedUrl(storagePath, 3600);
-          signedUrl = signData?.signedUrl || '';
-        }
-      } catch (uploadErr) {
-        console.warn('Storage upload notice:', uploadErr);
-      }
+        await client.storage.from('medical-records').remove([storagePath]);
+      } catch {}
+      throw new Error(`Failed to verify patient profile: ${profileError.message}`);
     }
 
-    // Save record to PostgreSQL with strict patient_id
+    // 3. Insert record into medical_documents
+    const { data: inserted, error: insertError } = await client
+      .from('medical_documents')
+      .insert({
+        patient_id: user.id,
+        title: newRecord.title,
+        document_type: newRecord.documentType,
+        visit_date: newRecord.visitDate || new Date().toISOString().split('T')[0],
+        facility_name: newRecord.facilityName || '',
+        storage_path: storagePath,
+        file_name: (fileBlob as File).name || newRecord.originalFileName || uniqueFileName,
+        file_size_bytes: fileSizeBytes,
+        mime_type: mimeType,
+        status: newRecord.status || 'verified',
+        ai_summary: newRecord.aiSummary,
+        extracted_fields: {
+          doctor_name: newRecord.doctorName,
+          medicines: newRecord.medicines,
+          lab_values: newRecord.labValues,
+          raw_ocr_text: newRecord.rawExtractedText || ''
+        },
+        review_alerts: newRecord.keyFindings || []
+      })
+      .select()
+      .single();
+
+    if (insertError || !inserted) {
+      try {
+        await client.storage.from('medical-records').remove([storagePath]);
+      } catch {}
+      throw new Error(`Failed to save medical document record: ${insertError?.message || 'Database insert failed'}`);
+    }
+
+    // Generate temporary signed URL for immediate preview
+    let signedUrl = '';
     try {
-      // Ensure profile row exists to satisfy foreign key (patient_id -> profiles.id)
-      await client.from('profiles').upsert({
-        id: user.id,
-        full_name: user.name || 'Patient',
-        preferred_language: user.preferredLanguage || 'en'
-      }, { onConflict: 'id' });
+      const { data: signData } = await client.storage
+        .from('medical-records')
+        .createSignedUrl(storagePath, 3600);
+      signedUrl = signData?.signedUrl || '';
+    } catch {}
 
-      const { data: inserted, error: insertError } = await client
-        .from('medical_documents')
-        .insert({
-          patient_id: user.id,
-          title: newRecord.title,
-          document_type: newRecord.documentType,
-          visit_date: newRecord.visitDate || new Date().toISOString().split('T')[0],
-          facility_name: newRecord.facilityName || 'Clinic',
-          storage_path: storagePath || `${user.id}/${Date.now()}_document.pdf`,
-          file_name: newRecord.originalFileName || 'document.pdf',
-          status: newRecord.status || 'verified',
-          ai_summary: newRecord.aiSummary,
-          extracted_fields: {
-            doctor_name: newRecord.doctorName,
-            medicines: newRecord.medicines,
-            lab_values: newRecord.labValues
-          },
-          review_alerts: newRecord.keyFindings
-        })
-        .select()
-        .single();
+    const freshRecord: MedicalRecord = {
+      ...newRecord,
+      id: inserted.id,
+      originalFileUrl: signedUrl || undefined,
+      createdAt: inserted.created_at || new Date().toISOString()
+    };
+    setRecords(prev => [freshRecord, ...prev]);
 
-      if (insertError) {
-        console.warn('Supabase document insert warning:', insertError);
+    // Automatically create reminders for any extracted medicines
+    if (newRecord.medicines && newRecord.medicines.length > 0) {
+      for (const m of newRecord.medicines) {
+        if (!m.name.trim()) continue;
+        await addReminder({
+          id: `rem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          medicineName: m.name,
+          dosage: m.dosage,
+          instructions: m.instructions || m.frequency,
+          timeSlot: m.timing === 'night' ? '09:30 PM' : m.timing === 'afternoon' ? '01:30 PM' : '08:00 AM',
+          slotName: m.timing === 'night' ? 'Night' : m.timing === 'afternoon' ? 'Afternoon' : 'Morning',
+          status: 'pending'
+        });
       }
-
-      const freshRecord: MedicalRecord = {
-        ...newRecord,
-        id: inserted?.id || newRecord.id,
-        originalFileUrl: signedUrl || newRecord.originalFileUrl
-      };
-      setRecords(prev => [freshRecord, ...prev]);
-
-      // Automatically create reminders for any extracted medicines
-      if (newRecord.medicines && newRecord.medicines.length > 0) {
-        for (const m of newRecord.medicines) {
-          await addReminder({
-            id: `rem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            medicineName: m.name,
-            dosage: m.dosage,
-            instructions: m.instructions || m.frequency,
-            timeSlot: m.timing === 'night' ? '09:30 PM' : m.timing === 'afternoon' ? '01:30 PM' : '08:00 AM',
-            slotName: m.timing === 'night' ? 'Night' : m.timing === 'afternoon' ? 'Afternoon' : 'Morning',
-            status: 'pending'
-          });
-        }
-      }
-    } catch (err) {
-      console.warn('Failed to insert medical document:', err);
-      const freshRecord: MedicalRecord = {
-        ...newRecord,
-        originalFileUrl: signedUrl || newRecord.originalFileUrl
-      };
-      setRecords(prev => [freshRecord, ...prev]);
     }
+
+    // 4. Index document for RAG search (preserving the saved document on failure)
+    let indexingStatus: 'indexed' | 'indexing_failed' = 'indexing_failed';
+    let chunksIndexed: number | undefined;
+    let embeddingModel: string | undefined;
+    let indexingError: string | undefined;
+
+    try {
+      const ragRes = await indexDocumentForRag(inserted.id);
+      indexingStatus = 'indexed';
+      chunksIndexed = ragRes.chunks_indexed;
+      embeddingModel = ragRes.embedding_model;
+    } catch (ragErr: any) {
+      indexingStatus = 'indexing_failed';
+      indexingError = ragErr?.message || 'Search indexing failed.';
+      setNotificationToast('⚠️ Document saved, but AI search indexing needs retry. RAG is not ready yet.');
+    }
+
+    return {
+      record: freshRecord,
+      indexingStatus,
+      chunksIndexed,
+      embeddingModel,
+      indexingError,
+    };
   };
 
   const updateRecord = async (id: string, updated: Partial<MedicalRecord>) => {

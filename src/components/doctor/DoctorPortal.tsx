@@ -12,20 +12,32 @@ import { useAuth } from '../../context/AuthContext';
 interface DoctorPortalProps {
   onSwitchToPatient: () => void;
   onPublishPrescriptionToPatient?: (record: MedicalRecord) => void;
+  activeTab?: 'home' | 'patients' | 'appointments' | 'messages' | 'profile';
+  onTabChange?: (tab: 'home' | 'patients' | 'appointments' | 'messages' | 'profile') => void;
+  isVerified?: boolean;
 }
 
 export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   onSwitchToPatient,
-  onPublishPrescriptionToPatient
+  onPublishPrescriptionToPatient,
+  activeTab: controlledTab,
+  onTabChange,
+  isVerified: controlledIsVerified
 }) => {
-  const { user } = useAuth();
+  const { user, isDoctorVerified: authIsDoctorVerified } = useAuth();
+  const isVerified = controlledIsVerified !== undefined ? controlledIsVerified : authIsDoctorVerified;
   const doctorDisplayName = user?.name ? (user.name.startsWith('Dr.') ? user.name : `Dr. ${user.name}`) : 'Dr. Practitioner';
   const doctorInitials = user?.name 
     ? user.name.replace(/^Dr\.\s*/i, '').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'DR'
     : 'DR';
 
   // Navigation tabs for doctor: home | patients | appointments | messages | profile
-  const [activeTab, setActiveTab] = useState<'home' | 'patients' | 'appointments' | 'messages' | 'profile'>('home');
+  const [internalTab, setInternalTab] = useState<'home' | 'patients' | 'appointments' | 'messages' | 'profile'>('home');
+  const activeTab = controlledTab !== undefined ? controlledTab : internalTab;
+  const setActiveTab = (tab: 'home' | 'patients' | 'appointments' | 'messages' | 'profile') => {
+    if (onTabChange) onTabChange(tab);
+    setInternalTab(tab);
+  };
   
   // Sub-views
   const [selectedPatient, setSelectedPatient] = useState<PatientListItem | null>(null);
@@ -37,12 +49,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   // Patients state - initialized empty for real database/authenticated doctor
   const [patients, setPatients] = useState<PatientListItem[]>([]);
   const [patientSearch, setPatientSearch] = useState('');
-  const [patientFilter, setPatientFilter] = useState<'all' | 'followup' | 'recent' | 'chronic'>('all');
+  const [patientFilter, _setPatientFilter] = useState<'all' | 'followup' | 'recent' | 'chronic'>('all');
 
   // Prescription builder state
   const [newMedName, setNewMedName] = useState('');
-  const [newMedDose, setNewMedDose] = useState('1 tab OD');
-  const [newMedDuration, setNewMedDuration] = useState('7 days');
+  const [newMedDose, _setNewMedDose] = useState('1 tab OD');
+  const [newMedDuration, _setNewMedDuration] = useState('7 days');
   const [prescriptionMedicines, setPrescriptionMedicines] = useState<ExtractedMedicine[]>([]);
   const [rxInstructions, setRxInstructions] = useState('');
   const [rxFollowUpDate, setRxFollowUpDate] = useState('');
@@ -112,7 +124,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
         origin: { y: 0.6 },
         colors: ['#0c7c61', '#149575', '#3b82f6']
       });
-    } catch (e) {}
+    } catch {}
 
     alert(`Prescription published successfully and synchronized with ${selectedPatient.name}'s Aarogya app!`);
     setShowCreatePrescription(false);
@@ -159,10 +171,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
           <div>
             <div className="flex items-center gap-1.5 font-extrabold text-xs text-slate-900">
               <span>{doctorDisplayName}</span>
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+              {isVerified ? (
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+              ) : (
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+              )}
             </div>
-            <div className="text-[10px] text-teal-800 font-semibold">
-              General Medicine · Verified Practitioner
+            <div className={`text-[10px] font-semibold ${isVerified ? 'text-teal-800' : 'text-amber-700'}`}>
+              General Medicine · {isVerified ? 'Verified Practitioner' : 'Verification Pending'}
             </div>
           </div>
         </div>
@@ -178,7 +194,18 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
       </div>
 
       {/* Screen Content based on activeTab */}
-      <div className="flex-1 p-4 overflow-y-auto space-y-4">
+      <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 overflow-y-auto space-y-4 md:space-y-6 max-w-6xl w-full mx-auto">
+        {!isVerified && (
+          <div className="p-3.5 bg-amber-50/90 border border-amber-200/80 rounded-2xl text-amber-900 text-xs flex items-start gap-3 shadow-2xs">
+            <Clock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-bold text-amber-950">Doctor Verification Pending</div>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Your medical registration number is undergoing credential verification. Clinical access to patient records is restricted until verification is confirmed by the healthcare network.
+              </p>
+            </div>
+          </div>
+        )}
         {/* VIEW 1: DOCTOR DASHBOARD */}
         {activeTab === 'home' && !selectedPatient && !showCreatePrescription && (
           <div className="space-y-4">
@@ -753,7 +780,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
       </div>
 
       {/* Doctor Bottom Navigation matching Mockup 4 */}
-      <nav className="sticky bottom-0 bg-white/95 backdrop-blur-md border-t border-slate-100 px-2 py-1.5 flex items-center justify-around z-20 shadow-xs">
+      <nav className="lg:hidden sticky bottom-0 bg-white/95 backdrop-blur-md border-t border-slate-100 px-2 py-1.5 flex items-center justify-around z-20 shadow-xs">
         {[
           { id: 'home' as const, label: 'Home', icon: Stethoscope },
           { id: 'patients' as const, label: 'Patients', icon: Users },

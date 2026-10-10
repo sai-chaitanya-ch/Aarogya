@@ -43,7 +43,7 @@ export const MedicalLibrary: React.FC<MedicalLibraryProps> = ({
   });
 
   return (
-    <div className="flex-1 p-4 bg-[#f8faf9] flex flex-col justify-between">
+    <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 bg-[#f8faf9] flex flex-col justify-between max-w-6xl w-full mx-auto">
       <div>
         {/* Header */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -94,8 +94,8 @@ export const MedicalLibrary: React.FC<MedicalLibraryProps> = ({
           ))}
         </div>
 
-        {/* Records List */}
-        <div className="space-y-2.5 mt-1">
+        {/* Records List - Responsive 1-col on mobile, 2-col on md, 3-col on xl */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 mt-2">
           {filteredRecords.map(record => (
             <div
               key={record.id}
@@ -145,7 +145,7 @@ export const MedicalLibrary: React.FC<MedicalLibraryProps> = ({
               {/* AI Summary snippet */}
               <div className="mt-2.5 pt-2 border-t border-slate-50 flex items-center gap-1.5 text-[11px] text-slate-600 line-clamp-2">
                 <Sparkles className="w-3.5 h-3.5 text-teal-700 flex-shrink-0" />
-                <span>{record.aiSummary[language] || record.aiSummary.en}</span>
+                <span>{record.aiSummary?.[language] || record.aiSummary?.en || 'Record verified.'}</span>
               </div>
             </div>
           ))}

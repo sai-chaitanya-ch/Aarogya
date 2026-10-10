@@ -1,75 +1,73 @@
+"""Private Supabase Storage and service-client helpers. No mock URLs or fake success."""
+from __future__ import annotations
+
 import os
-from typing import Optional, Any
+from typing import Any, Optional
+
+from dotenv import load_dotenv
+
+load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=False)
+
 try:
-    from supabase import create_client, Client
+    from supabase import create_client
 except ImportError:
     create_client = None
-    Client = None
+
+
+class StorageUnavailableError(RuntimeError):
+    pass
+
 
 def get_supabase_client() -> Optional[Any]:
-    """Initializes Supabase Client using backend credentials."""
     if not create_client:
         return None
-    supabase_url = os.getenv("SUPABASE_URL", "")
-    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-    if not supabase_url or not service_role_key:
+    url = os.getenv("SUPABASE_URL", "").strip()
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not url or not service_key:
         return None
     try:
-        return create_client(supabase_url, service_role_key)
-    except Exception as e:
-        print(f"Supabase client init error: {e}")
+        return create_client(url, service_key)
+    except Exception:
         return None
 
-def upload_private_medical_document(
-    user_id: str,
-    file_name: str,
-    file_bytes: bytes,
-    content_type: str = "image/jpeg"
-) -> Optional[str]:
-    """
-    Uploads document to private Supabase bucket 'medical-records'.
-    Path: {user_id}/{file_name}
-    Returns storage path.
-    """
-    supabase = get_supabase_client()
-    storage_path = f"{user_id}/{file_name}"
-    if not supabase:
-        return storage_path
 
+def upload_private_medical_document(user_id: str, file_name: str, file_bytes: bytes, content_type: str = "image/jpeg") -> str:
+    client = get_supabase_client()
+    if not client:
+        raise StorageUnavailableError("Supabase Storage is not configured on the backend.")
+    safe_name = os.path.basename(file_name).replace("\\", "_")
+    storage_path = f"{user_id}/{safe_name}"
     try:
         try:
-            supabase.storage.create_bucket("medical-records", options={"public": False})
+            client.storage.create_bucket("medical-records", options={"public": False})
         except Exception:
             pass
-
-        supabase.storage.from_("medical-records").upload(
+        client.storage.from_("medical-records").upload(
             path=storage_path,
             file=file_bytes,
-            file_options={"content-type": content_type, "upsert": "true"}
+            file_options={"content-type": content_type, "upsert": "false"},
         )
         return storage_path
-    except Exception as e:
-        print(f"Supabase upload notice: {e}")
-        return storage_path
+    except Exception as exc:
+        raise StorageUnavailableError("The document could not be uploaded to private storage.") from exc
+
 
 def generate_signed_url(storage_path: str, expires_in_seconds: int = 3600) -> str:
-    """
-    Generates a secure temporary signed URL for a private medical document.
-    Ensures documents are NOT exposed via public URLs.
-    Default expiry: 60 minutes.
-    """
-    supabase = get_supabase_client()
-    if not supabase:
-        return f"https://mock-signed-url.aarogya.internal/storage/v1/object/sign/medical-records/{storage_path}?token=mock_token_expires_{expires_in_seconds}s"
-
+    client = get_supabase_client()
+    if not client:
+        raise StorageUnavailableError("Supabase Storage is not configured on the backend.")
+    expiry = max(60, min(int(expires_in_seconds), 3600))
     try:
-        res = supabase.storage.from_("medical-records").create_signed_url(
-            path=storage_path,
-            expires_in=expires_in_seconds
-        )
-        if isinstance(res, dict):
-            return res.get("signedURL") or res.get("signedUrl") or ""
-        return str(res)
-    except Exception as e:
-        print(f"Error generating signed URL: {e}")
-        return ""
+        result = client.storage.from_("medical-records").create_signed_url(storage_path, expiry)
+        if isinstance(result, dict):
+            url = result.get("signedURL") or result.get("signedUrl")
+        else:
+            url = getattr(result, "signed_url", None) or getattr(result, "signedURL", None)
+        if not url:
+            raise StorageUnavailableError("Supabase did not return a signed URL.")
+        return str(url)
+    except StorageUnavailableError:
+        raise
+    except Exception as exc:
+        raise StorageUnavailableError("A temporary private document link could not be created.") from exc

@@ -65,7 +65,7 @@ export const MedicinesReminders: React.FC<MedicinesRemindersProps> = ({
   };
 
   return (
-    <div className="flex-1 p-4 bg-[#f8faf9] flex flex-col justify-between">
+    <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 bg-[#f8faf9] flex flex-col justify-between max-w-4xl w-full mx-auto">
       <div>
         {/* Header */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">

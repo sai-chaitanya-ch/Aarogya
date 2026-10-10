@@ -10,8 +10,6 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose = true }) => {
-  if (!isOpen) return null;
-
   const { signInWithEmail, signUpWithEmail, signInWithGoogle, isLoading, isConfigured, configError } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [selectedRole, setSelectedRole] = useState<UserRole>('patient');
@@ -19,6 +17,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

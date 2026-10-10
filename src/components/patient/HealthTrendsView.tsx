@@ -39,7 +39,7 @@ export const HealthTrendsView: React.FC<HealthTrendsViewProps> = ({
   const currentMetricData = getMetricData(selectedMetric);
 
   return (
-    <div className="flex-1 p-4 bg-[#f8faf9] flex flex-col justify-between">
+    <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 bg-[#f8faf9] flex flex-col justify-between max-w-4xl w-full mx-auto">
       <div>
         {/* Header */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -110,9 +110,11 @@ export const HealthTrendsView: React.FC<HealthTrendsViewProps> = ({
                         <span className="text-lg font-black text-slate-900">{lab.value}</span>
                       </div>
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mt-1 inline-block ${
-                        lab.status === 'low' || lab.status === 'high' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-50 text-emerald-800'
+                        lab.status === 'low' || lab.status === 'high' ? 'bg-amber-100 text-amber-800' :
+                        lab.status === 'unknown' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
+                        'bg-emerald-50 text-emerald-800'
                       }`}>
-                        {lab.status ? lab.status.toUpperCase() : 'NORMAL'}
+                        {lab.status ? lab.status.toUpperCase() : 'UNKNOWN'}
                       </span>
                     </div>
                   ))}

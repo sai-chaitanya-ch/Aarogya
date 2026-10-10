@@ -86,13 +86,13 @@ npm run preview
 ### 1. Frontend on Netlify
 * Configured with `netlify.toml` including SPA rewrite rules (`/*` → `/index.html`) and healthcare security headers.
 * **To Deploy**:
-  1. Go to [Netlify](https://app.netlify.com/) and click **"Add new site"** → **"Import an existing project"**.
-  2. Select your GitHub repository `sai-chaitanya-ch/Aarogya`.
+  1. Go to [Netlify Dashboard](https://app.netlify.com/) and select the project `aarogya-for-you`.
+  2. Set Deployment Branch: `staging`.
   3. Set Build Command: `npm run build` and Publish Directory: `dist`.
-  4. Under **Environment variables**, set:
-     * `VITE_API_URL`: Your Render backend URL (e.g. `https://aarogya-api.onrender.com`)
-     * `VITE_SUPABASE_URL`: Your Supabase Project URL
-     * `VITE_SUPABASE_ANON_KEY`: Your Supabase Anon Public Key
+  4. Under **Site configuration** → **Environment variables**, set:
+     * `VITE_API_BASE_URL`: Your Render backend URL (e.g. `https://aarogya-staging-api.onrender.com`)
+     * `VITE_SUPABASE_URL`: Your Supabase Project URL (e.g. `https://hnyqvzhcofchqsilcspn.supabase.co` for staging)
+     * `VITE_SUPABASE_ANON_KEY`: Your Supabase Anon Public Key (Never the service-role key)
 
 ### 2. Backend (FastAPI) on Render
 * Configured with `render.yaml` and `backend/requirements.txt`.
@@ -100,12 +100,14 @@ npm run preview
   1. Go to [Render Dashboard](https://dashboard.render.com/) and select **"Blueprints"** or **"New Web Service"**.
   2. Connect repository `sai-chaitanya-ch/Aarogya`.
   3. Root Directory: `backend`.
-  4. Build Command: `pip install -r requirements.txt`.
+  4. Build Command: `pip install --upgrade pip && pip install -r requirements.txt`.
   5. Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`.
   6. Add **Environment Variables**:
+     * `FRONTEND_ORIGIN`: `https://aarogya-for-you.netlify.app`
      * `GEMINI_API_KEY`: Your Google Gemini API Key.
+     * `GROQ_API_KEY`: Your Groq API Key (optional fallback).
      * `SUPABASE_URL`: Your Supabase project URL.
-     * `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase service role secret key.
+     * `SUPABASE_SERVICE_ROLE_KEY`: Your Supabase service role secret key (backend only).
 
 ### 3. Database & Storage on Supabase
 * **PostgreSQL with Row Level Security (RLS)** & **Private Storage Bucket**:

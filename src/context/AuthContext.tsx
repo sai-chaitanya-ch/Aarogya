@@ -35,13 +35,15 @@ export function clearAarogyaStorage() {
 interface AuthContextType {
   user: UserProfile;
   role: UserRole;
+  isDoctorAccount: boolean;
+  isDoctorVerified: boolean;
   isAuthenticated: boolean;
   isConfigured: boolean;
   configError: string | null;
   isLoading: boolean;
   setRole: (role: UserRole) => void;
   updateUserProfile: (updated: Partial<UserProfile>) => Promise<void>;
-  signInWithEmail: (email: string, password: string, selectedRole: UserRole) => Promise<{ success: boolean; error?: string }>;
+  signInWithEmail: (email: string, password: string, selectedRole?: UserRole) => Promise<{ success: boolean; error?: string }>;
   signUpWithEmail: (email: string, password: string, name: string, selectedRole: UserRole) => Promise<{ success: boolean; error?: string }>;
   signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
@@ -51,16 +53,19 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [role, setRoleState] = useState<UserRole>('patient');
+  const [isDoctorAccount, setIsDoctorAccount] = useState<boolean>(false);
+  const [isDoctorVerified, setIsDoctorVerified] = useState<boolean>(false);
   const [user, setUser] = useState<UserProfile>(emptyUserProfile);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [configError, setConfigError] = useState<string | null>(
+  const [configError, _setConfigError] = useState<string | null>(
     isSupabaseConfigured ? null : 'Supabase configuration missing. Please provide VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment.'
   );
 
-  const fetchSupabaseProfile = async (userId: string, fallbackName?: string) => {
+  const resolveAccountRoleAndProfile = async (userId: string, authUser?: any) => {
     if (!supabase) return;
     try {
+      // 1. Fetch patient profile
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -70,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data && !error) {
         setUser({
           id: data.id,
-          name: data.full_name || fallbackName || 'Patient',
+          name: data.full_name || authUser?.user_metadata?.full_name || 'Patient',
           dob: data.dob || '',
           age: data.dob ? Math.floor((Date.now() - new Date(data.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 0,
           gender: (data.gender as 'male' | 'female' | 'other') || 'other',
@@ -84,22 +89,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           abhaLinked: false
         });
       } else {
-        // If row doesn't exist yet, construct base profile from auth user
+        const fallbackName = authUser?.user_metadata?.full_name || authUser?.email?.split('@')[0] || 'User';
         const newProfile: UserProfile = {
           ...emptyUserProfile,
           id: userId,
-          name: fallbackName || 'User'
+          name: fallbackName
         };
         setUser(newProfile);
-        // Attempt to create the profile row
-        await supabase.from('profiles').insert({
-          id: userId,
-          full_name: newProfile.name,
-          preferred_language: 'en'
-        }).select().single();
+        try {
+          await supabase.from('profiles').insert({
+            id: userId,
+            full_name: newProfile.name,
+            preferred_language: 'en'
+          }).select().single();
+        } catch {}
+      }
+
+      // 2. Resolve Role Priority: doctor_profiles -> user_metadata.role -> default 'patient'
+      let isDoc = false;
+      let isVerified = false;
+
+      try {
+        const { data: docData } = await supabase
+          .from('doctor_profiles')
+          .select('id, is_verified')
+          .eq('id', userId)
+          .maybeSingle();
+
+        if (docData) {
+          isDoc = true;
+          isVerified = Boolean(docData.is_verified);
+        }
+      } catch (err) {
+        console.warn('Could not query doctor_profiles:', err);
+      }
+
+      const metaRole = authUser?.user_metadata?.role;
+      if (!isDoc && metaRole === 'doctor') {
+        isDoc = true;
+        isVerified = false;
+      }
+
+      setIsDoctorAccount(isDoc);
+      setIsDoctorVerified(isVerified);
+
+      if (isDoc) {
+        // If account is a doctor, default to doctor workspace, but honor cached preference if they selected patient view
+        const cachedRole = localStorage.getItem('aarogya_user_role');
+        const activeRole: UserRole = cachedRole === 'patient' ? 'patient' : 'doctor';
+        setRoleState(activeRole);
+        localStorage.setItem('aarogya_user_role', activeRole);
+      } else {
+        // Strict Patient enforcement: Patient accounts never get doctor role
+        setRoleState('patient');
+        localStorage.setItem('aarogya_user_role', 'patient');
       }
     } catch (e) {
-      console.warn('Failed to fetch profile from Supabase:', e);
+      console.warn('Failed to resolve profile from Supabase:', e);
     }
   };
 
@@ -122,9 +168,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       if (session?.user) {
         setIsAuthenticated(true);
-        fetchSupabaseProfile(
+        resolveAccountRoleAndProfile(
           session.user.id,
-          session.user.user_metadata?.full_name || session.user.email?.split('@')[0]
+          session.user
         ).finally(() => {
           if (isMounted) setIsLoading(false);
         });
@@ -140,9 +186,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!isMounted) return;
       if (session?.user) {
         setIsAuthenticated(true);
-        await fetchSupabaseProfile(
+        await resolveAccountRoleAndProfile(
           session.user.id,
-          session.user.user_metadata?.full_name || session.user.email?.split('@')[0]
+          session.user
         );
       } else {
         setIsAuthenticated(false);
@@ -186,10 +232,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const setRole = (newRole: UserRole) => {
+    if (newRole === 'doctor' && !isDoctorAccount) {
+      console.warn('Unauthorized workspace switch attempted: user is not a registered doctor account.');
+      return;
+    }
     setRoleState(newRole);
+    localStorage.setItem('aarogya_user_role', newRole);
   };
 
-  const signInWithEmail = async (email: string, password: string, selectedRole: UserRole) => {
+  const signInWithEmail = async (email: string, password: string, _selectedRole?: UserRole) => {
     if (!supabase) {
       return {
         success: false,
@@ -200,12 +251,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      setIsLoading(false);
-      if (error) return { success: false, error: error.message };
+      if (error) {
+        setIsLoading(false);
+        return { success: false, error: error.message };
+      }
       if (data.user) {
         setIsAuthenticated(true);
-        setRoleState(selectedRole);
-        await fetchSupabaseProfile(data.user.id, data.user.user_metadata?.full_name);
+        await resolveAccountRoleAndProfile(data.user.id, data.user);
+        setIsLoading(false);
         return { success: true };
       }
     } catch (err: any) {
@@ -231,11 +284,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password,
         options: { data: { full_name: name, role: selectedRole } }
       });
-      setIsLoading(false);
-      if (error) return { success: false, error: error.message };
+      if (error) {
+        setIsLoading(false);
+        return { success: false, error: error.message };
+      }
       if (data.user) {
         setIsAuthenticated(true);
-        setRoleState(selectedRole);
         // Create initial profile row
         try {
           await supabase.from('profiles').upsert({
@@ -246,7 +300,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (e) {
           console.warn('Could not upsert profile on signup:', e);
         }
-        await fetchSupabaseProfile(data.user.id, name);
+
+        // If selectedRole is doctor, create initial pending doctor profile row
+        if (selectedRole === 'doctor') {
+          try {
+            await supabase.from('doctor_profiles').upsert({
+              id: data.user.id,
+              full_name: name.startsWith('Dr.') ? name : `Dr. ${name}`,
+              qualifications: 'Medical Practitioner',
+              specialty: 'General Medicine',
+              registration_number: `REG-${data.user.id.slice(0, 8).toUpperCase()}`,
+              clinic_name: 'Aarogya Healthcare Network',
+              clinic_address: 'India',
+              is_verified: false
+            });
+          } catch (e) {
+            console.warn('Could not insert initial doctor profile row:', e);
+          }
+        }
+
+        await resolveAccountRoleAndProfile(data.user.id, data.user);
+        setIsLoading(false);
         return { success: true };
       }
     } catch (err: any) {
@@ -289,6 +363,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthenticated(false);
     setUser(emptyUserProfile);
     setRoleState('patient');
+    setIsDoctorAccount(false);
+    setIsDoctorVerified(false);
     setIsLoading(false);
   };
 
@@ -297,6 +373,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         role,
+        isDoctorAccount,
+        isDoctorVerified,
         isAuthenticated,
         isConfigured: isSupabaseConfigured,
         configError,
