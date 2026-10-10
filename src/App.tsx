@@ -31,7 +31,8 @@ import { DoctorPortal } from './components/doctor/DoctorPortal';
 function AarogyaAppContent() {
   const { 
     user, role, setRole, isDoctorAccount, isDoctorVerified, 
-    updateUserProfile, isAuthenticated, isLoading, signOut 
+    updateUserProfile, isAuthenticated, isLoading, signOut,
+    authNotice, authError, clearAuthNotice, clearAuthError
   } = useAuth();
   const { 
     records, reminders, appointments, 
@@ -108,8 +109,10 @@ function AarogyaAppContent() {
   // 3. Authenticated Application Experience
   return (
     <div className="h-[100dvh] bg-slate-100/90 text-slate-800 flex flex-col font-sans overflow-hidden">
-      {/* Real-time Notification Toast */}
+      {/* Real-time Notification & Auth Toasts */}
       <Toast message={notificationToast} onClose={clearNotificationToast} />
+      {authNotice && <Toast message={authNotice} onClose={clearAuthNotice} />}
+      {authError && <Toast message={authError} onClose={clearAuthError} />}
 
       {/* Top Universal App Header */}
       <Header

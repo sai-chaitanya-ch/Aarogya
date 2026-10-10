@@ -10,7 +10,18 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose = true }) => {
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle, isLoading, isConfigured, configError } = useAuth();
+  const { 
+    signInWithEmail, 
+    signUpWithEmail, 
+    signInWithGoogle, 
+    isLoading, 
+    isConfigured, 
+    configError,
+    authNotice,
+    authError,
+    clearAuthNotice,
+    clearAuthError
+  } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [selectedRole, setSelectedRole] = useState<UserRole>('patient');
   const [email, setEmail] = useState('');
@@ -23,6 +34,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    clearAuthNotice();
+    clearAuthError();
 
     if (!isConfigured) {
       setErrorMsg('Supabase environment variables are missing. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable authentication.');
@@ -52,7 +65,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
 
   const handleGoogleSignIn = async () => {
     setErrorMsg(null);
-    const res = await signInWithGoogle();
+    clearAuthNotice();
+    clearAuthError();
+    const res = await signInWithGoogle(selectedRole, mode);
     if (!res.success) {
       if (
         res.error?.toLowerCase().includes('provider is not enabled') || 
@@ -133,17 +148,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
         <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-2.5 space-y-1.5">
           <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
             <span>Demo Test Credentials</span>
-            <span className="text-[10px] text-teal-700 font-semibold">1-Click Fill</span>
+            <span className="text-[10px] text-teal-700 font-semibold">Prefill Email & Role</span>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
               onClick={() => {
-                setEmail('patient.demo@aarogya.in');
-                setPassword('DemoPassword123!');
-                setFullName('Ramesh Kumar (Demo Patient)');
+                setEmail('test@gmail.com');
+                setPassword('');
+                setFullName('Test Patient');
                 setSelectedRole('patient');
                 setErrorMsg(null);
+                clearAuthNotice();
+                clearAuthError();
               }}
               className="py-1.5 px-2 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl text-[11px] font-semibold text-slate-700 hover:text-teal-900 transition-all flex items-center justify-center gap-1 shadow-2xs"
             >
@@ -153,11 +170,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
             <button
               type="button"
               onClick={() => {
-                setEmail('doctor.demo@aarogya.in');
-                setPassword('DemoPassword123!');
-                setFullName('Dr. Priya Sharma (Demo Doctor)');
+                setEmail('doctor@gmail.com');
+                setPassword('');
+                setFullName('Dr. Demo Doctor');
                 setSelectedRole('doctor');
                 setErrorMsg(null);
+                clearAuthNotice();
+                clearAuthError();
               }}
               className="py-1.5 px-2 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl text-[11px] font-semibold text-slate-700 hover:text-teal-900 transition-all flex items-center justify-center gap-1 shadow-2xs"
             >
@@ -171,7 +190,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
         <div className="flex border-b border-slate-100 text-xs font-bold text-center">
           <button
             type="button"
-            onClick={() => setMode('signin')}
+            onClick={() => {
+              setMode('signin');
+              setErrorMsg(null);
+            }}
             className={`flex-1 pb-2 border-b-2 transition-all ${
               mode === 'signin' ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-400'
             }`}
@@ -180,7 +202,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
           </button>
           <button
             type="button"
-            onClick={() => setMode('signup')}
+            onClick={() => {
+              setMode('signup');
+              setErrorMsg(null);
+            }}
             className={`flex-1 pb-2 border-b-2 transition-all ${
               mode === 'signup' ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-400'
             }`}
@@ -188,6 +213,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
             Create Account
           </button>
         </div>
+
+        {/* Auth Notice banner (e.g. role retention or switch notice) */}
+        {authNotice && (
+          <div className="p-2.5 rounded-xl bg-teal-50 text-teal-900 text-[11px] font-medium border border-teal-200 flex items-start gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-teal-600 flex-shrink-0 mt-0.5" />
+            <span>{authNotice}</span>
+          </div>
+        )}
+
+        {/* Auth Error / URL OAuth error banner */}
+        {authError && (
+          <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900 text-[11px] font-medium border border-amber-200 flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <span>{authError}</span>
+          </div>
+        )}
 
         {/* Error message */}
         {errorMsg && (

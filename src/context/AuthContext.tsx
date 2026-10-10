@@ -5,6 +5,14 @@ import { calculateAgeFromDob } from '../utils/dateUtils';
 
 export type UserRole = 'patient' | 'doctor';
 
+export const OAUTH_INTENT_KEY = 'aarogya_oauth_signup_intent';
+
+export interface OAuthSignupIntent {
+  role: UserRole;
+  mode: 'signin' | 'signup';
+  timestamp: number;
+}
+
 export const emptyUserProfile: UserProfile = {
   id: '',
   name: '',
@@ -41,12 +49,16 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isConfigured: boolean;
   configError: string | null;
+  authNotice: string | null;
+  authError: string | null;
   isLoading: boolean;
   setRole: (role: UserRole) => void;
+  clearAuthNotice: () => void;
+  clearAuthError: () => void;
   updateUserProfile: (updated: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
   signInWithEmail: (email: string, password: string, selectedRole?: UserRole) => Promise<{ success: boolean; error?: string }>;
   signUpWithEmail: (email: string, password: string, name: string, selectedRole: UserRole) => Promise<{ success: boolean; error?: string }>;
-  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
+  signInWithGoogle: (selectedRole?: UserRole, authMode?: 'signin' | 'signup') => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -59,55 +71,109 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile>(emptyUserProfile);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [configError, _setConfigError] = useState<string | null>(
     isSupabaseConfigured ? null : 'Supabase configuration missing. Please provide VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment.'
   );
 
+  const clearAuthNotice = () => setAuthNotice(null);
+  const clearAuthError = () => setAuthError(null);
+
   const resolveAccountRoleAndProfile = async (userId: string, authUser?: any) => {
     if (!supabase) return;
     try {
-      // 1. Fetch patient profile
-      const { data, error } = await supabase
+      // 1. Consume pending OAuth signup intent if present (< 10 minutes old)
+      let oauthIntent: OAuthSignupIntent | null = null;
+      try {
+        const storedIntent = sessionStorage.getItem(OAUTH_INTENT_KEY);
+        if (storedIntent) {
+          sessionStorage.removeItem(OAUTH_INTENT_KEY);
+          const parsed = JSON.parse(storedIntent) as OAuthSignupIntent;
+          const TEN_MINUTES_MS = 10 * 60 * 1000;
+          if (parsed && parsed.role && parsed.timestamp && (Date.now() - parsed.timestamp) < TEN_MINUTES_MS) {
+            oauthIntent = parsed;
+          }
+        }
+      } catch (intentErr) {
+        console.warn('Could not parse OAuth intent from sessionStorage:', intentErr);
+      }
+
+      // Check existing accounts in database
+      const { data: existingDocProfile } = await supabase
+        .from('doctor_profiles')
+        .select('id, is_verified')
+        .eq('id', userId)
+        .maybeSingle();
+
+      const { data: existingPatientProfile, error: _patientProfileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      if (data && !error) {
-        const calculatedAge = calculateAgeFromDob(data.dob);
-        setUser({
-          id: data.id,
-          name: data.full_name || authUser?.user_metadata?.full_name || 'Patient',
-          dob: data.dob || '',
-          age: calculatedAge ?? 0,
-          gender: (data.gender as 'male' | 'female' | 'other') || 'other',
-          bloodGroup: data.blood_group || '',
-          location: data.location || '',
-          phone: data.phone || '',
-          emergencyContact: data.emergency_contact || '',
-          allergies: Array.isArray(data.allergies) ? data.allergies : [],
-          conditions: Array.isArray(data.conditions) ? data.conditions : [],
-          preferredLanguage: (data.preferred_language as Language) || 'en',
-          abhaLinked: false
-        });
-      } else {
-        const fallbackName = authUser?.user_metadata?.full_name || authUser?.email?.split('@')[0] || 'User';
-        const newProfile: UserProfile = {
-          ...emptyUserProfile,
-          id: userId,
-          name: fallbackName
-        };
-        setUser(newProfile);
+      const createdAtTimestamp = authUser?.created_at ? new Date(authUser.created_at).getTime() : 0;
+      const isNewAccount = createdAtTimestamp > 0 && 
+        (Date.now() - createdAtTimestamp) < 5 * 60 * 1000 && 
+        !existingDocProfile && 
+        !existingPatientProfile;
+
+      // Handle demo test doctor account linking
+      const isDemoDoctorEmail = authUser?.email?.toLowerCase() === 'doctor@gmail.com';
+      if (isDemoDoctorEmail && !existingDocProfile) {
         try {
-          await supabase.from('profiles').insert({
+          const docName = authUser?.user_metadata?.full_name || 'Dr. Demo Practitioner';
+          await supabase.from('doctor_profiles').insert({
             id: userId,
-            full_name: newProfile.name,
-            preferred_language: 'en'
-          }).select().single();
-        } catch {}
+            full_name: docName.startsWith('Dr.') ? docName : `Dr. ${docName}`,
+            qualifications: 'MBBS, MD (General Medicine)',
+            specialty: 'General Medicine',
+            registration_number: `DEMO-DOC-${userId.slice(0, 8).toUpperCase()}`,
+            clinic_name: 'Aarogya Healthcare Network (Demo)',
+            clinic_address: 'Apollo Medical District, Hyderabad, India',
+            is_verified: false
+          });
+        } catch (demoDocErr) {
+          console.warn('Failed to auto-link demo doctor profile:', demoDocErr);
+        }
       }
 
-      // 2. Resolve Role Priority: doctor_profiles -> user_metadata.role -> default 'patient'
+      // Handle OAuth intent for newly registered accounts
+      if (oauthIntent && oauthIntent.mode === 'signup') {
+        if (isNewAccount) {
+          if (oauthIntent.role === 'doctor') {
+            try {
+              const docName = authUser?.user_metadata?.full_name || authUser?.email?.split('@')[0] || 'Doctor';
+              const { error: insertDocError } = await supabase.from('doctor_profiles').insert({
+                id: userId,
+                full_name: docName.startsWith('Dr.') ? docName : `Dr. ${docName}`,
+                qualifications: 'Medical Practitioner (Unverified)',
+                specialty: 'General Medicine',
+                registration_number: `DOC-${userId.slice(0, 8).toUpperCase()}`,
+                clinic_name: 'Aarogya Healthcare Network (Pending Verification)',
+                clinic_address: 'India',
+                is_verified: false
+              });
+
+              if (insertDocError) {
+                console.error('Failed to create doctor profile for new OAuth signup:', insertDocError);
+                setAuthError(`Doctor profile creation failed: ${insertDocError.message}. Defaulted to patient.`);
+              }
+            } catch (err: any) {
+              console.error('Exception during doctor profile creation:', err);
+              setAuthError(`Doctor profile initialization error: ${err.message || 'Unknown error'}`);
+            }
+          }
+        } else {
+          // Returning account with conflicting role selection
+          const existingAccountRole: UserRole = existingDocProfile ? 'doctor' : 'patient';
+          if (oauthIntent.role !== existingAccountRole) {
+            setAuthNotice(`This account is already registered as a ${existingAccountRole}. Your existing role was retained.`);
+          }
+        }
+      }
+
+      // Re-fetch doctor status following any potential creation/linking above
       let isDoc = false;
       let isVerified = false;
 
@@ -132,27 +198,91 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isVerified = false;
       }
 
+      // Fetch or initialize patient profile (all users have a profile row)
+      const { data: refreshedProfile, error: refreshedProfileErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (refreshedProfile && !refreshedProfileErr) {
+        const calculatedAge = calculateAgeFromDob(refreshedProfile.dob);
+        setUser({
+          id: refreshedProfile.id,
+          name: refreshedProfile.full_name || authUser?.user_metadata?.full_name || (isDoc ? 'Doctor' : 'Patient'),
+          dob: refreshedProfile.dob || '',
+          age: calculatedAge ?? 0,
+          gender: (refreshedProfile.gender as 'male' | 'female' | 'other') || 'other',
+          bloodGroup: refreshedProfile.blood_group || '',
+          location: refreshedProfile.location || '',
+          phone: refreshedProfile.phone || '',
+          emergencyContact: refreshedProfile.emergency_contact || '',
+          allergies: Array.isArray(refreshedProfile.allergies) ? refreshedProfile.allergies : [],
+          conditions: Array.isArray(refreshedProfile.conditions) ? refreshedProfile.conditions : [],
+          preferredLanguage: (refreshedProfile.preferred_language as Language) || 'en',
+          abhaLinked: false
+        });
+      } else {
+        const fallbackName = authUser?.user_metadata?.full_name || authUser?.email?.split('@')[0] || (isDoc ? 'Doctor' : 'Patient');
+        const newProfile: UserProfile = {
+          ...emptyUserProfile,
+          id: userId,
+          name: fallbackName
+        };
+        setUser(newProfile);
+        try {
+          await supabase.from('profiles').insert({
+            id: userId,
+            full_name: newProfile.name,
+            preferred_language: 'en'
+          }).select().single();
+        } catch (insertErr) {
+          console.warn('Could not insert fallback profiles row:', insertErr);
+        }
+      }
+
       setIsDoctorAccount(isDoc);
       setIsDoctorVerified(isVerified);
 
       if (isDoc) {
-        // If account is a doctor, default to doctor workspace, but honor cached preference if they selected patient view
         const cachedRole = localStorage.getItem('aarogya_user_role');
         const activeRole: UserRole = cachedRole === 'patient' ? 'patient' : 'doctor';
         setRoleState(activeRole);
         localStorage.setItem('aarogya_user_role', activeRole);
       } else {
-        // Strict Patient enforcement: Patient accounts never get doctor role
         setRoleState('patient');
         localStorage.setItem('aarogya_user_role', 'patient');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Failed to resolve profile from Supabase:', e);
+      setAuthError(`Profile resolution error: ${e?.message || 'Unknown error'}`);
     }
   };
 
   // Listen to live Supabase Auth state changes and restore session
   useEffect(() => {
+    // Check URL parameters and hash for OAuth callbacks or errors
+    if (typeof window !== 'undefined') {
+      try {
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const searchParams = new URLSearchParams(window.location.search);
+        
+        const oauthErrorDesc = hashParams.get('error_description') || searchParams.get('error_description');
+        const oauthErrorCode = hashParams.get('error_code') || searchParams.get('error_code') || hashParams.get('error') || searchParams.get('error');
+
+        if (oauthErrorCode || oauthErrorDesc) {
+          const userFriendlyError = oauthErrorDesc || `Authentication failed: ${oauthErrorCode}`;
+          setAuthError(userFriendlyError.replace(/\+/g, ' '));
+          
+          // Clean URL without triggering page refresh
+          const cleanUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
+        }
+      } catch (urlErr) {
+        console.warn('Error reading OAuth callback parameters:', urlErr);
+      }
+    }
+
     if (!supabase) {
       setIsLoading(false);
       setIsAuthenticated(false);
@@ -301,7 +431,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('aarogya_user_role', newRole);
   };
 
-  const signInWithEmail = async (email: string, password: string, _selectedRole?: UserRole) => {
+  const signInWithEmail = async (email: string, password: string, selectedRole?: UserRole) => {
     if (!supabase) {
       return {
         success: false,
@@ -310,6 +440,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     setIsLoading(true);
+    setAuthNotice(null);
+    setAuthError(null);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
@@ -319,6 +451,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.user) {
         setIsAuthenticated(true);
         await resolveAccountRoleAndProfile(data.user.id, data.user);
+        
+        // If selectedRole was provided, check for mismatch with resolved account capability
+        if (selectedRole) {
+          // Check if user selected Doctor but account is not a registered doctor
+          const { data: docData } = await supabase
+            .from('doctor_profiles')
+            .select('id')
+            .eq('id', data.user.id)
+            .maybeSingle();
+
+          const actuallyDoctor = Boolean(docData) || data.user.user_metadata?.role === 'doctor';
+          if (selectedRole === 'doctor' && !actuallyDoctor) {
+            setAuthNotice('This account is registered as a patient. Patient workspace has been loaded.');
+          } else if (selectedRole === 'patient' && actuallyDoctor) {
+            setAuthNotice('This account is registered as a doctor. You can switch between Doctor and Patient views at any time.');
+          }
+        }
+
         setIsLoading(false);
         return { success: true };
       }
@@ -339,6 +489,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     setIsLoading(true);
+    setAuthNotice(null);
+    setAuthError(null);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -368,7 +520,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await supabase.from('doctor_profiles').upsert({
               id: data.user.id,
               full_name: name.startsWith('Dr.') ? name : `Dr. ${name}`,
-              qualifications: 'Medical Practitioner',
+              qualifications: 'Medical Practitioner (Unverified)',
               specialty: 'General Medicine',
               registration_number: `REG-${data.user.id.slice(0, 8).toUpperCase()}`,
               clinic_name: 'Aarogya Healthcare Network',
@@ -392,11 +544,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: false, error: 'Unknown registration error' };
   };
 
-  const signInWithGoogle = async (): Promise<{ success: boolean; error?: string }> => {
+  const signInWithGoogle = async (
+    selectedRole: UserRole = 'patient',
+    authMode: 'signin' | 'signup' = 'signin'
+  ): Promise<{ success: boolean; error?: string }> => {
     if (!supabase) {
       return { success: false, error: 'Supabase client is not configured.' };
     }
     try {
+      setAuthNotice(null);
+      setAuthError(null);
+
+      // Persist signup intent before OAuth redirection
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        const intent: OAuthSignupIntent = {
+          role: selectedRole,
+          mode: authMode,
+          timestamp: Date.now()
+        };
+        sessionStorage.setItem(OAUTH_INTENT_KEY, JSON.stringify(intent));
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: window.location.origin }
@@ -426,6 +594,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setRoleState('patient');
     setIsDoctorAccount(false);
     setIsDoctorVerified(false);
+    setAuthNotice(null);
+    setAuthError(null);
     setIsLoading(false);
   };
 
@@ -439,8 +609,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated,
         isConfigured: isSupabaseConfigured,
         configError,
+        authNotice,
+        authError,
         isLoading,
         setRole,
+        clearAuthNotice,
+        clearAuthError,
         updateUserProfile,
         signInWithEmail,
         signUpWithEmail,
