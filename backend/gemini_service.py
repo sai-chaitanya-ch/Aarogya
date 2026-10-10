@@ -26,9 +26,28 @@ GROQ_MODELS_DEFAULT = "llama-3.3-70b-versatile,llama-3.1-8b-instant"
 GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
+GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "8.0"))
+GROQ_TIMEOUT_SECONDS = float(os.getenv("GROQ_TIMEOUT_SECONDS", "10.0"))
+
+_HTTP_CLIENT: Optional[httpx.Client] = None
+
+
+def get_http_client() -> httpx.Client:
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        _HTTP_CLIENT = httpx.Client(
+            timeout=httpx.Timeout(12.0, connect=3.0),
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=40, keepalive_expiry=60.0),
+        )
+    return _HTTP_CLIENT
+
 
 class ModelUnavailableError(RuntimeError):
     """Raised when no configured inference provider returns a usable answer."""
+
+
+class QuotaExhaustedError(RuntimeError):
+    """Raised when an API key's quota is exhausted or rate limited (HTTP 429/403)."""
 
 
 @dataclass
@@ -50,15 +69,19 @@ def get_candidate_gemini_models() -> List[str]:
     else:
         primary = os.getenv("GEMINI_MODEL", GEMINI_MODEL_DEFAULT).strip()
         candidates = [primary] if primary else []
-    for model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-3.8-flash", "gemini-3.5-flash-lite"]:
+    for model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"]:
         if model not in candidates:
             candidates.append(model)
     return candidates
 
 
 def get_candidate_groq_models() -> List[str]:
-    models = _csv_env("GROQ_MODELS", GROQ_MODELS_DEFAULT)
-    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]:
+    configured = os.getenv("GROQ_MODELS", "").strip()
+    if configured:
+        models = _csv_env("GROQ_MODELS", "")
+    else:
+        models = _csv_env("GROQ_MODELS", GROQ_MODELS_DEFAULT)
+    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]:
         if model not in models:
             models.append(model)
     return models
@@ -71,6 +94,7 @@ def _call_gemini(
     image_bytes: Optional[bytes] = None,
     mime_type: str = "image/jpeg",
     json_mode: bool = False,
+    max_output_tokens: int = 2500,
 ) -> Optional[str]:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -81,20 +105,25 @@ def _call_gemini(
         import base64
         parts.append({"inline_data": {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode("ascii")}})
     parts.append({"text": prompt})
-    generation_config: Dict[str, Any] = {"temperature": 0.2, "maxOutputTokens": 3000}
+    generation_config: Dict[str, Any] = {"temperature": 0.2, "maxOutputTokens": max_output_tokens}
     if json_mode:
         generation_config["responseMimeType"] = "application/json"
     payload: Dict[str, Any] = {"contents": [{"role": "user", "parts": parts}], "generationConfig": generation_config}
     if system_instruction:
         payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
+    timeout = GEMINI_TIMEOUT_SECONDS if not image_bytes else 30.0
+    client = get_http_client()
     try:
-        with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
-            response = client.post(
-                GEMINI_GENERATE_URL.format(model=model),
-                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json=payload,
-            )
+        response = client.post(
+            GEMINI_GENERATE_URL.format(model=model),
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json=payload,
+            timeout=httpx.Timeout(timeout, connect=3.0),
+        )
+        if response.status_code in (429, 403):
+            logger.warning("Gemini quota exhausted or rate limited: model=%s status=%s", model, response.status_code)
+            raise QuotaExhaustedError(f"Gemini quota exhausted ({response.status_code})")
         if response.status_code >= 400:
             # Do not log response bodies; they can contain request or account data.
             logger.warning("Gemini request failed: model=%s status=%s", model, response.status_code)
@@ -106,12 +135,20 @@ def _call_gemini(
         text_parts = candidates[0].get("content", {}).get("parts", [])
         text = "\n".join(part.get("text", "") for part in text_parts if part.get("text"))
         return text.strip() or None
+    except QuotaExhaustedError:
+        raise
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         logger.warning("Gemini request failed: model=%s error_type=%s", model, type(exc).__name__)
         return None
 
 
-def _call_groq(prompt: str, system_instruction: str, model: str, json_mode: bool = False) -> Optional[str]:
+def _call_groq(
+    prompt: str,
+    system_instruction: str,
+    model: str,
+    json_mode: bool = False,
+    max_output_tokens: int = 2500,
+) -> Optional[str]:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
         return None
@@ -123,17 +160,18 @@ def _call_groq(prompt: str, system_instruction: str, model: str, json_mode: bool
         "model": model,
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": 3000,
+        "max_tokens": max_output_tokens,
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    client = get_http_client()
     try:
-        with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0)) as client:
-            response = client.post(
-                GROQ_CHAT_URL,
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json=payload,
-            )
+        response = client.post(
+            GROQ_CHAT_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=httpx.Timeout(GROQ_TIMEOUT_SECONDS, connect=3.0),
+        )
         if response.status_code >= 400:
             logger.warning("Groq request failed: model=%s status=%s", model, response.status_code)
             return None
@@ -154,21 +192,34 @@ def generate_text(
     mime_type: str = "image/jpeg",
     json_mode: bool = False,
     allow_groq: bool = True,
+    max_output_tokens: int = 2500,
 ) -> ModelResult:
     """Try Gemini models first, then configured Groq models when input is text-only."""
     attempts = 0
     for model in get_candidate_gemini_models():
         attempts += 1
-        text = _call_gemini(prompt, system_instruction, model, image_bytes, mime_type, json_mode)
-        if text:
-            return ModelResult(text, "gemini", model, attempts > 1)
+        try:
+            text = _call_gemini(
+                prompt,
+                system_instruction,
+                model,
+                image_bytes,
+                mime_type,
+                json_mode,
+                max_output_tokens=max_output_tokens,
+            )
+            if text:
+                return ModelResult(text, "gemini", model, attempts > 1)
+        except QuotaExhaustedError:
+            logger.info("Gemini quota exhausted; fast failover to Groq inference engine.")
+            break
 
     # Groq text models cannot be assumed to read images; only use them after OCR text exists.
     if not allow_groq:
         raise ModelUnavailableError("Gemini vision is unavailable. Please retry or use a readable document with selectable text.")
     for model in get_candidate_groq_models():
         attempts += 1
-        text = _call_groq(prompt, system_instruction, model, json_mode)
+        text = _call_groq(prompt, system_instruction, model, json_mode, max_output_tokens=max_output_tokens)
         if text:
             return ModelResult(text, "groq", model, True)
 
@@ -295,7 +346,7 @@ Retrieved authorized record excerpts:
 {context[:18000]}
 """
     prompt = f"User question: {query.strip()[:4000]}\nAnswer clearly and concisely. Cite retrieved records using their source labels like [S1] where relevant."
-    generated = generate_text(prompt, system_instruction=system)
+    generated = generate_text(prompt, system_instruction=system, max_output_tokens=850)
     return {
         "reply": generated.text,
         "response": generated.text,
