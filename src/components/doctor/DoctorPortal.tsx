@@ -12,11 +12,15 @@ import { useAuth } from '../../context/AuthContext';
 interface DoctorPortalProps {
   onSwitchToPatient: () => void;
   onPublishPrescriptionToPatient?: (record: MedicalRecord) => void;
+  activeTab?: 'home' | 'patients' | 'appointments' | 'messages' | 'profile';
+  onTabChange?: (tab: 'home' | 'patients' | 'appointments' | 'messages' | 'profile') => void;
 }
 
 export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   onSwitchToPatient,
-  onPublishPrescriptionToPatient
+  onPublishPrescriptionToPatient,
+  activeTab: controlledTab,
+  onTabChange
 }) => {
   const { user } = useAuth();
   const doctorDisplayName = user?.name ? (user.name.startsWith('Dr.') ? user.name : `Dr. ${user.name}`) : 'Dr. Practitioner';
@@ -25,7 +29,12 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
     : 'DR';
 
   // Navigation tabs for doctor: home | patients | appointments | messages | profile
-  const [activeTab, setActiveTab] = useState<'home' | 'patients' | 'appointments' | 'messages' | 'profile'>('home');
+  const [internalTab, setInternalTab] = useState<'home' | 'patients' | 'appointments' | 'messages' | 'profile'>('home');
+  const activeTab = controlledTab !== undefined ? controlledTab : internalTab;
+  const setActiveTab = (tab: 'home' | 'patients' | 'appointments' | 'messages' | 'profile') => {
+    if (onTabChange) onTabChange(tab);
+    setInternalTab(tab);
+  };
   
   // Sub-views
   const [selectedPatient, setSelectedPatient] = useState<PatientListItem | null>(null);
@@ -178,7 +187,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
       </div>
 
       {/* Screen Content based on activeTab */}
-      <div className="flex-1 p-4 overflow-y-auto space-y-4">
+      <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 overflow-y-auto space-y-4 md:space-y-6 max-w-6xl w-full mx-auto">
         {/* VIEW 1: DOCTOR DASHBOARD */}
         {activeTab === 'home' && !selectedPatient && !showCreatePrescription && (
           <div className="space-y-4">
@@ -753,7 +762,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
       </div>
 
       {/* Doctor Bottom Navigation matching Mockup 4 */}
-      <nav className="sticky bottom-0 bg-white/95 backdrop-blur-md border-t border-slate-100 px-2 py-1.5 flex items-center justify-around z-20 shadow-xs">
+      <nav className="lg:hidden sticky bottom-0 bg-white/95 backdrop-blur-md border-t border-slate-100 px-2 py-1.5 flex items-center justify-around z-20 shadow-xs">
         {[
           { id: 'home' as const, label: 'Home', icon: Stethoscope },
           { id: 'patients' as const, label: 'Patients', icon: Users },

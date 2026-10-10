@@ -86,15 +86,33 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right Actions: Language Selector, Notification Bell, User Avatar */}
-        <div className="flex items-center gap-2">
-          {/* Language Selector */}
-          <div className="relative">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Desktop Language Selector Pill Bar (matching reference mockup) */}
+          <div className="hidden md:flex items-center bg-slate-100 p-0.5 rounded-xl text-xs font-semibold border border-slate-200/80">
+            {languages.map(item => (
+              <button
+                key={item.code}
+                onClick={() => onLanguageChange(item.code)}
+                className={`px-2.5 py-1 rounded-lg uppercase transition-all ${
+                  language === item.code
+                    ? 'bg-teal-700 text-white font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title={`${item.native} (${item.label})`}
+              >
+                {item.code}
+              </button>
+            ))}
+          </div>
+
+          {/* Mobile / Tablet Dropdown Language Selector */}
+          <div className="relative md:hidden">
             <button
               onClick={() => {
                 setShowLangMenu(!showLangMenu);
                 setShowNotifications(false);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors"
+              className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors"
               title="Change Language"
             >
               <Globe className="w-3.5 h-3.5 text-teal-700" />
@@ -137,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Bell className="w-4 h-4" />
               {totalNotifications > 0 && (
-                <span className="absolute 1 top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white animate-pulse" />
+                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white animate-pulse" />
               )}
             </button>
 

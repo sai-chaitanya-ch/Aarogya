@@ -3,7 +3,8 @@ import {
   Language, MedicalRecord, Appointment, Doctor 
 } from './types';
 import { Header } from './components/common/Header';
-import { PhoneFrame } from './components/common/PhoneFrame';
+import { AppSidebar } from './components/common/AppSidebar';
+import { ChatContextPanel } from './components/patient/ChatContextPanel';
 import { BottomNav } from './components/common/BottomNav';
 import { Toast } from './components/common/Toast';
 import { AarogyaLogo } from './components/common/AarogyaLogo';
@@ -41,6 +42,7 @@ function AarogyaAppContent() {
   // Patient Navigation State
   // onboarding | home | scan | summary | chat | library | reminders | appointments | doctors | trends | profile
   const [patientView, setPatientView] = useState<string>('home');
+  const [doctorTab, setDoctorTab] = useState<'home' | 'patients' | 'appointments' | 'messages' | 'profile'>('home');
   const [onboardingStep, setOnboardingStep] = useState<1 | 2 | null>(null);
 
   // Selected Record for Summary Inspection
@@ -61,24 +63,6 @@ function AarogyaAppContent() {
   const handleLanguageChange = (lang: Language) => {
     setLanguage(lang);
     updateUserProfile({ preferredLanguage: lang });
-  };
-
-  // Determine current active screen title for PhoneFrame top bar
-  const getScreenTitle = () => {
-    if (role === 'doctor') return `Doctor Portal (${user.name || 'Clinician'})`;
-    if (onboardingStep === 1) return 'Language Selection';
-    if (onboardingStep === 2) return 'Health Profile Setup';
-    if (patientView === 'home') return 'Health Dashboard';
-    if (patientView === 'scan') return 'Scan & Review Report';
-    if (patientView === 'summary') return 'Report Summary';
-    if (patientView === 'chat') return 'Ask Aarogya: AI Copilot';
-    if (patientView === 'library') return 'Medical Document Library';
-    if (patientView === 'reminders') return 'Medication Schedule';
-    if (patientView === 'appointments') return 'Appointments & Consultations';
-    if (patientView === 'doctors') return 'Find Nearby Doctors';
-    if (patientView === 'trends') return 'Health Summary & Biomarkers';
-    if (patientView === 'profile') return 'Health Profile & Identity';
-    return 'Aarogya Copilot';
   };
 
   // Quick navigation helpers for BottomNav
@@ -145,25 +129,50 @@ function AarogyaAppContent() {
         onSignOut={signOut}
       />
 
-      {/* Main View Container */}
-      <main className="flex-1 flex flex-col items-center">
-        <PhoneFrame activeScreenTitle={getScreenTitle()}>
-          {role === 'doctor' ? (
-            /* DOCTOR PORTAL WORKFLOW */
-            <DoctorPortal
-              onSwitchToPatient={() => {
-                setRole('patient');
-                setPatientView('home');
+      {/* Main Responsive Application Shell */}
+      <main className="flex-1 flex w-full max-w-7xl mx-auto min-h-0 overflow-hidden md:p-3 lg:p-4">
+        <div className="flex-1 flex w-full bg-white md:rounded-3xl md:border md:border-slate-200/80 md:shadow-xs overflow-hidden min-h-0">
+          {/* Desktop & Tablet Navigation Sidebar */}
+          <div className="hidden lg:flex h-full">
+            <AppSidebar
+              currentRole={role}
+              activeView={role === 'doctor' ? doctorTab : patientView}
+              onNavigate={(v) => {
+                if (role === 'doctor') {
+                  setDoctorTab(v as any);
+                } else {
+                  setChatInitialPrompt('');
+                  setPatientView(v);
+                  setOnboardingStep(null);
+                }
               }}
-              onPublishPrescriptionToPatient={(publishedRecord) => {
-                handleSaveScannedRecord(publishedRecord);
-              }}
+              language={language}
+              recordCount={records.length}
+              reminderCount={reminders.length}
+              upcomingCount={appointments.length}
             />
-          ) : (
-            /* PATIENT WORKFLOW */
-            <div className="flex-1 flex flex-col justify-between min-h-full">
-              {/* Step 01 or Step 02 Onboarding */}
-              {onboardingStep !== null ? (
+          </div>
+
+          {/* Central Main Application View */}
+          <div className="flex-1 min-w-0 flex flex-col h-full overflow-y-auto">
+            {role === 'doctor' ? (
+              /* DOCTOR PORTAL WORKFLOW */
+              <DoctorPortal
+                activeTab={doctorTab}
+                onTabChange={setDoctorTab}
+                onSwitchToPatient={() => {
+                  setRole('patient');
+                  setPatientView('home');
+                }}
+                onPublishPrescriptionToPatient={(publishedRecord) => {
+                  handleSaveScannedRecord(publishedRecord);
+                }}
+              />
+            ) : (
+              /* PATIENT WORKFLOW */
+              <div className="flex-1 flex flex-col justify-between min-h-full">
+                {/* Step 01 or Step 02 Onboarding */}
+                {onboardingStep !== null ? (
                 <OnboardingSteps
                   step={onboardingStep}
                   language={language}
@@ -326,18 +335,38 @@ function AarogyaAppContent() {
                 />
               ) : null}
 
-              {/* Bottom Navigation for Patient */}
+              {/* Bottom Navigation for Patient on Mobile */}
               {onboardingStep === null && patientView !== 'scan' && patientView !== 'chat' && (
-                <BottomNav
-                  activeTab={getActiveBottomTab()}
-                  onChangeTab={handleBottomNavChange}
-                  language={language}
-                />
+                <div className="lg:hidden">
+                  <BottomNav
+                    activeTab={getActiveBottomTab()}
+                    onChangeTab={handleBottomNavChange}
+                    language={language}
+                  />
+                </div>
               )}
             </div>
           )}
-        </PhoneFrame>
-      </main>
+        </div>
+
+        {/* Right Contextual Panel for Chat on XL screens */}
+        {role === 'patient' && patientView === 'chat' && (
+          <ChatContextPanel
+            records={records}
+            reminders={reminders}
+            language={language}
+            onNavigate={(v) => {
+              setPatientView(v);
+              setOnboardingStep(null);
+            }}
+            onOpenRecord={(rec) => {
+              setActiveRecordForSummary(rec);
+              setPatientView('summary');
+            }}
+          />
+        )}
+      </div>
+    </main>
 
       {/* ABDM / ABHA Connection Modal */}
       <ABDMConnectionModal

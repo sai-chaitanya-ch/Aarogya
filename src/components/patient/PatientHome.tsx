@@ -34,9 +34,9 @@ export const PatientHome: React.FC<PatientHomeProps> = ({
   const upcomingAptsCount = appointments.filter(a => a.status === 'upcoming').length;
 
   return (
-    <div className="flex-1 p-4 space-y-4 bg-[#f8faf9] text-slate-800">
-      {/* Top Bar with Brand & User Avatar */}
-      <div className="flex items-center justify-between pt-1">
+    <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 space-y-4 md:space-y-6 bg-[#f8faf9] text-slate-800 max-w-6xl w-full mx-auto">
+      {/* Top Bar with Brand & User Avatar - Rendered on Mobile only since Header is already present on Desktop */}
+      <div className="flex md:hidden items-center justify-between pt-1">
         <AarogyaLogo size="sm" showSubtitle={false} />
         <div className="flex items-center gap-2">
           <button 
@@ -128,110 +128,110 @@ export const PatientHome: React.FC<PatientHomeProps> = ({
       </div>
 
       {/* Primary Action Buttons (Ask Aarogya & Scan a Report) */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 md:gap-4">
         {/* Ask Aarogya Card - Teal */}
         <button
           onClick={() => onNavigate('chat')}
-          className="group text-left p-4 bg-gradient-to-br from-teal-700 to-teal-800 hover:from-teal-800 hover:to-teal-900 text-white rounded-3xl shadow-md shadow-teal-900/10 transition-all flex flex-col justify-between min-h-[110px]"
+          className="group text-left p-4 sm:p-5 bg-gradient-to-br from-teal-700 to-teal-800 hover:from-teal-800 hover:to-teal-900 text-white rounded-3xl shadow-md shadow-teal-900/10 transition-all flex flex-col justify-between min-h-[110px] sm:min-h-[130px]"
         >
           <div className="flex items-center justify-between">
-            <div className="w-8 h-8 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center">
               <MessageSquare className="w-4 h-4 text-white" />
             </div>
             <ChevronRight className="w-4 h-4 text-white/70 group-hover:translate-x-0.5 transition-transform" />
           </div>
           <div>
-            <div className="font-extrabold text-sm">{t.askAarogya}</div>
-            <div className="text-[11px] text-teal-100/80 font-medium">{t.askAarogyaSub}</div>
+            <div className="font-extrabold text-sm sm:text-base">{t.askAarogya}</div>
+            <div className="text-[11px] sm:text-xs text-teal-100/80 font-medium">{t.askAarogyaSub}</div>
           </div>
         </button>
 
         {/* Scan a Report Card - Lavender / Soft Blue */}
         <button
           onClick={() => onNavigate('scan')}
-          className="group text-left p-4 bg-gradient-to-br from-indigo-50 to-blue-100/80 hover:from-indigo-100 hover:to-blue-200/80 text-slate-900 rounded-3xl border border-indigo-200/60 shadow-sm transition-all flex flex-col justify-between min-h-[110px]"
+          className="group text-left p-4 sm:p-5 bg-gradient-to-br from-indigo-50 to-blue-100/80 hover:from-indigo-100 hover:to-blue-200/80 text-slate-900 rounded-3xl border border-indigo-200/60 shadow-sm transition-all flex flex-col justify-between min-h-[110px] sm:min-h-[130px]"
         >
           <div className="flex items-center justify-between">
-            <div className="w-8 h-8 rounded-xl bg-indigo-600/10 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600/10 flex items-center justify-center">
               <Camera className="w-4 h-4 text-indigo-700" />
             </div>
             <ChevronRight className="w-4 h-4 text-indigo-500 group-hover:translate-x-0.5 transition-transform" />
           </div>
           <div>
-            <div className="font-extrabold text-sm text-slate-900">{t.scanReport}</div>
-            <div className="text-[11px] text-slate-600 font-medium">{t.scanReportSub}</div>
+            <div className="font-extrabold text-sm sm:text-base text-slate-900">{t.scanReport}</div>
+            <div className="text-[11px] sm:text-xs text-slate-600 font-medium">{t.scanReportSub}</div>
           </div>
         </button>
       </div>
 
-      {/* Feature Navigation Cards List */}
-      <div className="space-y-2">
+      {/* Feature Navigation Cards List - Responsive 2-col on md+ screens */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 md:gap-3.5">
         {/* Medical Library */}
         <button
           onClick={() => onNavigate('library')}
-          className="w-full flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 hover:bg-slate-50/80 transition-all text-left"
+          className="w-full flex items-center justify-between p-3.5 sm:p-4 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 hover:bg-slate-50/80 transition-all text-left"
         >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center flex-shrink-0">
               <FolderOpen className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-xs font-bold text-slate-800">{t.medicalLibrary}</div>
+              <div className="text-xs sm:text-sm font-bold text-slate-800">{t.medicalLibrary}</div>
               <div className="text-[11px] text-slate-500">{t.medicalLibrarySub}</div>
             </div>
           </div>
-          <ChevronRight className="w-4 h-4 text-slate-400" />
+          <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
         </button>
 
         {/* Medicines & Reminders */}
         <button
           onClick={() => onNavigate('reminders')}
-          className="w-full flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 hover:bg-slate-50/80 transition-all text-left"
+          className="w-full flex items-center justify-between p-3.5 sm:p-4 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 hover:bg-slate-50/80 transition-all text-left"
         >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center flex-shrink-0">
               <Pill className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-xs font-bold text-slate-800">{t.medicinesReminders}</div>
+              <div className="text-xs sm:text-sm font-bold text-slate-800">{t.medicinesReminders}</div>
               <div className="text-[11px] text-slate-500">{t.medicinesRemindersSub}</div>
             </div>
           </div>
-          <ChevronRight className="w-4 h-4 text-slate-400" />
+          <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
         </button>
 
         {/* Appointments */}
         <button
           onClick={() => onNavigate('appointments')}
-          className="w-full flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 hover:bg-slate-50/80 transition-all text-left"
+          className="w-full flex items-center justify-between p-3.5 sm:p-4 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 hover:bg-slate-50/80 transition-all text-left"
         >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center flex-shrink-0">
               <Calendar className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-xs font-bold text-slate-800">{t.appointments}</div>
+              <div className="text-xs sm:text-sm font-bold text-slate-800">{t.appointments}</div>
               <div className="text-[11px] text-slate-500">{t.appointmentsSub}</div>
             </div>
           </div>
-          <ChevronRight className="w-4 h-4 text-slate-400" />
+          <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
         </button>
 
         {/* Find a Doctor */}
         <button
           onClick={() => onNavigate('doctors')}
-          className="w-full flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 hover:bg-slate-50/80 transition-all text-left"
+          className="w-full flex items-center justify-between p-3.5 sm:p-4 bg-white rounded-2xl border border-slate-100 shadow-xs hover:border-teal-200 hover:bg-slate-50/80 transition-all text-left"
         >
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0">
               <Stethoscope className="w-4 h-4" />
             </div>
             <div>
-              <div className="text-xs font-bold text-slate-800">{t.findDoctor}</div>
+              <div className="text-xs sm:text-sm font-bold text-slate-800">{t.findDoctor}</div>
               <div className="text-[11px] text-slate-500">{t.findDoctorSub}</div>
             </div>
           </div>
-          <ChevronRight className="w-4 h-4 text-slate-400" />
+          <ChevronRight className="w-4 h-4 text-slate-400 flex-shrink-0" />
         </button>
       </div>
 

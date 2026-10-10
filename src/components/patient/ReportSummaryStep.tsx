@@ -74,7 +74,7 @@ export const ReportSummaryStep: React.FC<ReportSummaryStepProps> = ({
   };
 
   return (
-    <div className="flex-1 p-4 bg-[#f8faf9] flex flex-col justify-between min-h-[680px]">
+    <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 bg-[#f8faf9] flex flex-col justify-between min-h-[500px] max-w-4xl w-full mx-auto">
       <div>
         {/* Header matching mockup */}
         <div className="flex items-center justify-between pb-2 border-b border-slate-100">
