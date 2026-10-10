@@ -59,7 +59,7 @@ function AarogyaAppContent() {
 
   // Handle saving new scanned record
   const handleSaveScannedRecord = async (newRec: MedicalRecord, fileBlob?: File | Blob) => {
-    await addRecord(newRec, fileBlob);
+    return await addRecord(newRec, fileBlob);
   };
 
   // Switch language

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { supabase } from '../services/supabase';
 import { indexDocumentForRag } from '../services/api';
 import { useAuth } from './AuthContext';
-import { MedicalRecord, ActiveMedicationReminder, Appointment } from '../types';
+import { MedicalRecord, ActiveMedicationReminder, Appointment, AddRecordResult } from '../types';
 
 interface HealthDataContextType {
   records: MedicalRecord[];
@@ -11,7 +11,7 @@ interface HealthDataContextType {
   isLoading: boolean;
   dbError: string | null;
   refetchData: () => Promise<void>;
-  addRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<void>;
+  addRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<AddRecordResult>;
   updateRecord: (id: string, updated: Partial<MedicalRecord>) => Promise<void>;
   deleteRecord: (id: string) => Promise<void>;
   toggleReminderStatus: (id: string, newStatus: 'taken' | 'skipped' | 'pending') => Promise<void>;
@@ -304,12 +304,30 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     }
 
-    // 4. Index document for RAG search
+    // 4. Index document for RAG search (preserving the saved document on failure)
+    let indexingStatus: 'indexed' | 'indexing_failed' = 'indexing_failed';
+    let chunksIndexed: number | undefined;
+    let embeddingModel: string | undefined;
+    let indexingError: string | undefined;
+
     try {
-      await indexDocumentForRag(inserted.id);
-    } catch (_ragErr: any) {
+      const ragRes = await indexDocumentForRag(inserted.id);
+      indexingStatus = 'indexed';
+      chunksIndexed = ragRes.chunks_indexed;
+      embeddingModel = ragRes.embedding_model;
+    } catch (ragErr: any) {
+      indexingStatus = 'indexing_failed';
+      indexingError = ragErr?.message || 'Search indexing failed.';
       setNotificationToast('⚠️ Document saved, but AI search indexing needs retry. RAG is not ready yet.');
     }
+
+    return {
+      record: freshRecord,
+      indexingStatus,
+      chunksIndexed,
+      embeddingModel,
+      indexingError,
+    };
   };
 
   const updateRecord = async (id: string, updated: Partial<MedicalRecord>) => {

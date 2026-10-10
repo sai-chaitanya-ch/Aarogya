@@ -114,6 +114,14 @@ export interface Doctor {
   phone: string;
 }
 
+export interface AddRecordResult {
+  record: MedicalRecord;
+  indexingStatus: 'indexed' | 'indexing_failed';
+  chunksIndexed?: number;
+  embeddingModel?: string;
+  indexingError?: string;
+}
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'aarogya';
@@ -122,10 +130,13 @@ export interface ChatMessage {
   citations?: {
     documentTitle: string;
     documentDate: string;
-    recordId: string;
+    recordId?: string;
   }[];
   audioAvailable?: boolean;
   isEmergencyAlert?: boolean;
+  retrievalMode?: string;
+  provider?: string;
+  model?: string;
 }
 
 export interface PatientListItem {

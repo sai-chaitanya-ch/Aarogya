@@ -11,7 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 
 interface ScanReviewStepProps {
   language: Language;
-  onSaveRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<void> | void;
+  onSaveRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<any> | any;
   onCancel: () => void;
   onViewSummary: (record: MedicalRecord) => void;
 }
@@ -124,8 +124,9 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
         createdAt: new Date().toISOString()
       };
 
-      await onSaveRecord(recordToSave, customFile);
-      onViewSummary(recordToSave);
+      const saveResult = await onSaveRecord(recordToSave, customFile);
+      const savedRecord = (saveResult && typeof saveResult === 'object' && 'record' in saveResult) ? (saveResult as any).record : recordToSave;
+      onViewSummary(savedRecord);
     } catch (err: any) {
       setSaveError(err?.message || 'Failed to save document. Please check your connection and try again.');
     } finally {

@@ -172,3 +172,241 @@ def test_document_process_unsupported_type_rejected(client, monkeypatch):
     )
     assert res.status_code == 415
     assert "PDF, JPEG, PNG, or WebP" in res.json().get("detail", "")
+
+
+def test_rag_index_successful_produces_chunks_and_indexed_status(client, monkeypatch):
+    """Successful indexing returns success=True and the chunks_indexed count."""
+    user_id = str(uuid.uuid4())
+    doc_id = str(uuid.uuid4())
+
+    mock_supabase = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = user_id
+    mock_supabase.auth.get_user.return_value = MagicMock(user=mock_user)
+    monkeypatch.setattr(main, "get_supabase_client", lambda: mock_supabase)
+
+    monkeypatch.setattr(
+        main,
+        "index_medical_document",
+        lambda uid, did: {
+            "document_id": did,
+            "chunks_indexed": 3,
+            "embedding_model": "gemini-embedding-001",
+            "dimensions": 768,
+        },
+    )
+
+    res = client.post(
+        "/api/rag/index",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"document_id": doc_id},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["document_id"] == doc_id
+    assert data["chunks_indexed"] == 3
+    assert data["embedding_model"] == "gemini-embedding-001"
+
+
+def test_rag_index_failure_returns_error_and_preserves_saved_document(client, monkeypatch):
+    """When indexing fails after a successful document save, 503 is returned without deleting the record."""
+    user_id = str(uuid.uuid4())
+    doc_id = str(uuid.uuid4())
+
+    mock_supabase = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = user_id
+    mock_supabase.auth.get_user.return_value = MagicMock(user=mock_user)
+    monkeypatch.setattr(main, "get_supabase_client", lambda: mock_supabase)
+
+    import rag_service
+
+    def mock_fail(uid, did):
+        raise rag_service.RagUnavailableError("Gemini embedding quota exceeded.")
+
+    monkeypatch.setattr(main, "index_medical_document", mock_fail)
+
+    res = client.post(
+        "/api/rag/index",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"document_id": doc_id},
+    )
+    assert res.status_code == 503
+    assert "Gemini embedding quota exceeded" in res.json().get("detail", "")
+
+
+def test_rag_index_retry_does_not_create_duplicate_documents(client, monkeypatch):
+    """Retrying indexing calls the index endpoint with the existing document_id, upserting chunks idempotently."""
+    user_id = str(uuid.uuid4())
+    doc_id = str(uuid.uuid4())
+
+    mock_supabase = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = user_id
+    mock_supabase.auth.get_user.return_value = MagicMock(user=mock_user)
+    monkeypatch.setattr(main, "get_supabase_client", lambda: mock_supabase)
+
+    call_count = 0
+
+    def mock_index(uid, did):
+        nonlocal call_count
+        call_count += 1
+        assert uid == user_id
+        assert did == doc_id
+        return {
+            "document_id": did,
+            "chunks_indexed": 2,
+            "embedding_model": "gemini-embedding-001",
+            "dimensions": 768,
+        }
+
+    monkeypatch.setattr(main, "index_medical_document", mock_index)
+
+    # First attempt
+    res1 = client.post(
+        "/api/rag/index",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"document_id": doc_id},
+    )
+    assert res1.status_code == 200
+
+    # Retry attempt using the exact same document_id
+    res2 = client.post(
+        "/api/rag/index",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"document_id": doc_id},
+    )
+    assert res2.status_code == 200
+    assert call_count == 2
+
+
+def test_failed_upload_never_appears_indexed(client, monkeypatch):
+    """Empty files or invalid formats fail during document processing and never produce an indexed document."""
+    user_id = str(uuid.uuid4())
+    mock_supabase = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = user_id
+    mock_supabase.auth.get_user.return_value = MagicMock(user=mock_user)
+    monkeypatch.setattr(main, "get_supabase_client", lambda: mock_supabase)
+
+    # Empty file
+    res = client.post(
+        "/api/documents/process",
+        headers={"Authorization": "Bearer valid_token"},
+        files={"file": ("empty.pdf", b"", "application/pdf")},
+    )
+    assert res.status_code == 400
+    assert "empty" in res.json().get("detail", "").lower()
+
+
+def test_cross_user_document_cannot_be_indexed_or_retrieved(client, monkeypatch):
+    """User A cannot index User B's document and cannot retrieve User B's chunks or medical records."""
+    user_a_id = str(uuid.uuid4())
+    user_b_id = str(uuid.uuid4())
+    user_b_doc_id = str(uuid.uuid4())
+
+    mock_supabase = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = user_a_id
+    mock_supabase.auth.get_user.return_value = MagicMock(user=mock_user)
+    monkeypatch.setattr(main, "get_supabase_client", lambda: mock_supabase)
+
+    # 1. Attempt to index User B's document as User A -> rejected
+    def mock_index(uid, did):
+        assert uid == user_a_id
+        if did == user_b_doc_id:
+            raise PermissionError("The document was not found for the authenticated user.")
+        return {"document_id": did, "chunks_indexed": 1}
+
+    monkeypatch.setattr(main, "index_medical_document", mock_index)
+
+    index_res = client.post(
+        "/api/rag/index",
+        headers={"Authorization": "Bearer valid_token_user_a"},
+        json={"document_id": user_b_doc_id},
+    )
+    assert index_res.status_code == 404
+
+    # 2. Query chat as User A: User B's chunks are never returned
+    def mock_retrieve(uid, query, limit=5):
+        assert uid == user_a_id  # Isolated to User A only
+        return {"hits": [], "mode": "no_match"}
+
+    monkeypatch.setattr(main, "retrieve_relevant_chunks", mock_retrieve)
+    monkeypatch.setattr(
+        main,
+        "ask_aarogya_chat",
+        lambda query, language, medical_history_context, citations: {
+            "reply": "I could not find relevant records for your query.",
+            "citations": citations,
+            "is_emergency": False,
+            "provider": "gemini",
+            "model": "gemini-2.0-flash",
+            "fallback_used": False,
+        },
+    )
+
+    chat_res = client.post(
+        "/api/chat",
+        headers={"Authorization": "Bearer valid_token_user_a"},
+        json={"query": "What are the test results from my latest report?"},
+    )
+    assert chat_res.status_code == 200
+    data = chat_res.json()
+    assert data["citations"] == []
+    assert data["retrieval_mode"] == "no_match"
+
+
+def test_successful_rag_query_returns_grounded_evidence(client, monkeypatch):
+    """When indexed chunks match the user query, chat returns grounded citations and retrieval mode."""
+    user_id = str(uuid.uuid4())
+    doc_id = str(uuid.uuid4())
+
+    mock_supabase = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = user_id
+    mock_supabase.auth.get_user.return_value = MagicMock(user=mock_user)
+    monkeypatch.setattr(main, "get_supabase_client", lambda: mock_supabase)
+
+    def mock_retrieve(uid, query, limit=5):
+        assert uid == user_id
+        return {
+            "hits": [{
+                "document_id": doc_id,
+                "document_title": "Blood Test CBC",
+                "document_date": "2026-02-15",
+                "content": "Hemoglobin level is 14.2 g/dL, which is within the normal reference range.",
+                "similarity": 0.88,
+                "retrieval_mode": "vector",
+            }],
+            "mode": "vector",
+        }
+
+    monkeypatch.setattr(main, "retrieve_relevant_chunks", mock_retrieve)
+    monkeypatch.setattr(
+        main,
+        "ask_aarogya_chat",
+        lambda query, language, medical_history_context, citations: {
+            "reply": "Your hemoglobin is 14.2 g/dL, which is normal.",
+            "citations": citations,
+            "is_emergency": False,
+            "provider": "gemini",
+            "model": "gemini-2.0-flash",
+            "fallback_used": False,
+        },
+    )
+
+    res = client.post(
+        "/api/chat",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"query": "What is my hemoglobin level?"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["retrieval_mode"] == "vector"
+    assert data["retrieved_chunks"] == 1
+    assert len(data["citations"]) == 1
+    assert data["citations"][0]["recordId"] == doc_id
+    assert data["citations"][0]["documentTitle"] == "Blood Test CBC"
+

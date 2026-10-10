@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   ArrowLeft, Mic, Send, Sparkles, Volume2, 
-  FileText, AlertCircle, Paperclip, X, CheckCircle2, Loader2, ChevronRight 
+  FileText, AlertCircle, Paperclip, X, CheckCircle2, Loader2, ChevronRight, RotateCw 
 } from 'lucide-react';
 import { MedicalRecord, Language, ChatMessage } from '../../types';
-import { sendChatToBackend, processDocumentWithBackend } from '../../services/api';
+import { sendChatToBackend, processDocumentWithBackend, indexDocumentForRag } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useHealthData } from '../../context/HealthDataContext';
 
@@ -17,13 +17,22 @@ interface AskAarogyaChatProps {
   onViewRecord?: (recordId: string) => void;
 }
 
+export type AttachmentStatus =
+  | 'processing'
+  | 'saving_and_indexing'
+  | 'indexed'
+  | 'saved_unindexed'
+  | 'error';
+
 interface AttachedDocState {
   file: File;
   name: string;
   sizeFormatted: string;
-  status: 'processing' | 'indexed' | 'error';
+  status: AttachmentStatus;
   errorMessage?: string;
   recordId?: string;
+  chunksIndexed?: number;
+  isRetryingIndex?: boolean;
 }
 
 export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
@@ -113,6 +122,7 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
       ? `${Math.round(file.size / 1024)} KB`
       : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
 
+    // 1. Initial Processing state
     setAttachment({
       file,
       name: file.name,
@@ -122,23 +132,116 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
 
     try {
       // 1. Send to existing authenticated backend processing endpoint
-      const { record } = await processDocumentWithBackend(file, 'custom', user.name || 'Patient');
-      // 2. Persist to storage, save to database, and trigger pgvector indexing
-      await addRecord(record, file);
+      const { record: candidateRecord } = await processDocumentWithBackend(file, 'custom', user.name || 'Patient');
+
+      // 2. Transition to saving and indexing state
+      setAttachment(prev => prev ? {
+        ...prev,
+        status: 'saving_and_indexing'
+      } : null);
+
+      // 3. Persist to storage, save to database, and attempt pgvector indexing
+      const saveResult = await addRecord(candidateRecord, file);
+      const realRecord = saveResult.record;
+      const realId = realRecord.id;
+
+      if (saveResult.indexingStatus === 'indexed') {
+        const chunks = saveResult.chunksIndexed ?? 1;
+        setAttachment(prev => prev ? {
+          ...prev,
+          status: 'indexed',
+          recordId: realId,
+          chunksIndexed: chunks,
+          errorMessage: undefined
+        } : null);
+
+        const confirmText = language === 'te' 
+          ? `మీ పత్రం "${file.name}" విజయవంతంగా ప్రాసెస్ చేయబడింది మరియు AI శోధన కోసం ఇండెక్స్ చేయబడింది (${chunks} భాగాలు). మీరు ఇప్పుడు దీని గురించి ప్రశ్నలు అడగవచ్చు!`
+          : language === 'hi'
+          ? `आपका दस्तावेज़ "${file.name}" सफलतापूर्वक प्रोसेस और इंडेक्स हो गया है (${chunks} खंड)। अब आप इसके बारे में पूछ सकते हैं!`
+          : language === 'ta'
+          ? `உங்கள் ஆவணம் "${file.name}" வெற்றிகரமாக செயலாக்கப்பட்டு குறியிடப்பட்டது (${chunks} பகுதிகள்). நீங்கள் இப்போது அதைப் பற்றி கேட்கலாம்!`
+          : `I've analyzed and indexed "${file.name}" (${chunks} chunks) into your health records. You can now ask questions about it!`;
+
+        setMessages(prev => [...prev, {
+          id: `ai_${Date.now()}`,
+          sender: 'aarogya',
+          text: confirmText,
+          timestamp: 'Just now',
+          citations: [{
+            documentTitle: realRecord.title || file.name,
+            documentDate: realRecord.visitDate || 'Recent',
+            recordId: realId
+          }]
+        }]);
+      } else {
+        // Saved successfully, but indexing failed
+        setAttachment(prev => prev ? {
+          ...prev,
+          status: 'saved_unindexed',
+          recordId: realId,
+          errorMessage: saveResult.indexingError || 'Document was saved, but AI search indexing failed.'
+        } : null);
+
+        const warnText = language === 'te'
+          ? `మీ పత్రం "${file.name}" సురక్షితంగా సేవ్ చేయబడింది, కానీ AI శోధన ఇండెక్సింగ్ ఇంకా పూర్తి కాలేదు. శోధనను ప్రారంభించడానికి దయచేసి 'Retry Indexing' పై క్లిక్ చేయండి.`
+          : language === 'hi'
+          ? `आपका दस्तावेज़ "${file.name}" सुरक्षित रूप से सहेज लिया गया है, लेकिन AI सर्च इंडेक्सिंग पूरी नहीं हो सकी। इंडेक्स करने के लिए कृपया 'Retry Indexing' पर क्लिक करें।`
+          : language === 'ta'
+          ? `உங்கள் ஆவணம் "${file.name}" பாதுகாப்பாக சேமிக்கப்பட்டது, ஆனால் AI தேடல் குறியீட்டு முறை தோல்வியடைந்தது. மீண்டும் முயற்சிக்க 'Retry Indexing' கிளிக் செய்யவும்.`
+          : `Your document "${file.name}" was safely saved to your medical records, but AI search indexing failed. Click "Retry Indexing" to enable AI search on this document.`;
+
+        setMessages(prev => [...prev, {
+          id: `ai_${Date.now()}`,
+          sender: 'aarogya',
+          text: warnText,
+          timestamp: 'Just now',
+          citations: [{
+            documentTitle: realRecord.title || file.name,
+            documentDate: realRecord.visitDate || 'Recent',
+            recordId: realId
+          }]
+        }]);
+      }
+    } catch (err: any) {
+      setAttachment(prev => prev ? {
+        ...prev,
+        status: 'error',
+        errorMessage: err?.message || 'Document processing or upload failed. Please retry.'
+      } : null);
+    }
+  };
+
+  const handleRetryIndexing = async () => {
+    if (!attachment || !attachment.recordId || attachment.isRetryingIndex) return;
+
+    setAttachment(prev => prev ? {
+      ...prev,
+      isRetryingIndex: true,
+      errorMessage: undefined
+    } : null);
+
+    try {
+      // Calls existing authenticated indexing endpoint using the real saved database document ID.
+      // Does not upload duplicate files or create duplicate medical-document records!
+      const res = await indexDocumentForRag(attachment.recordId);
+      const chunks = res.chunks_indexed ?? 1;
 
       setAttachment(prev => prev ? {
         ...prev,
         status: 'indexed',
-        recordId: record.id
+        chunksIndexed: chunks,
+        isRetryingIndex: false,
+        errorMessage: undefined
       } : null);
 
-      const confirmText = language === 'te' 
-        ? `మీ పత్రం "${file.name}" విజయవంతంగా ప్రాసెస్ చేయబడింది మరియు మీ ఆరోగ్య రికార్డులలో భద్రపరచబడింది. మీరు ఇప్పుడు దీని గురించి ప్రశ్నలు అడగవచ్చు!`
+      const confirmText = language === 'te'
+        ? `"${attachment.name}" పత్రం కోసం AI శోధన ఇండెక్సింగ్ విజయవంతంగా పూర్తయింది (${chunks} భాగాలు). మీరు ఇప్పుడు దీని గురించి ప్రశ్నలు అడగవచ్చు!`
         : language === 'hi'
-        ? `आपका दस्तावेज़ "${file.name}" सफलतापूर्वक प्रोसेस और इंडेक्स हो गया है। अब आप इसके बारे में पूछ सकते हैं!`
+        ? `"${attachment.name}" के लिए AI सर्च इंडेक्सिंग सफलतापूर्वक पूरी हो गई (${chunks} खंड)। अब आप इसके बारे में पूछ सकते हैं!`
         : language === 'ta'
-        ? `உங்கள் ஆவணம் "${file.name}" வெற்றிகரமாக செயலாக்கப்பட்டு குறியிடப்பட்டது. நீங்கள் இப்போது அதைப் பற்றி கேட்கலாம்!`
-        : `I've analyzed and indexed "${file.name}" into your health records. You can now ask questions about it!`;
+        ? `"${attachment.name}" க்கான AI தேடல் குறியீட்டு முறை வெற்றிகரமாக நிறைவடைந்தது (${chunks} பகுதிகள்). நீங்கள் இப்போது அதைப் பற்றி கேட்கலாம்!`
+        : `AI search indexing completed for "${attachment.name}" (${chunks} chunks). You can now ask questions about it!`;
 
       setMessages(prev => [...prev, {
         id: `ai_${Date.now()}`,
@@ -146,16 +249,17 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
         text: confirmText,
         timestamp: 'Just now',
         citations: [{
-          documentTitle: record.title || file.name,
-          documentDate: record.visitDate || 'Recent',
-          recordId: record.id
+          documentTitle: attachment.name,
+          documentDate: 'Recent',
+          recordId: attachment.recordId
         }]
       }]);
     } catch (err: any) {
       setAttachment(prev => prev ? {
         ...prev,
-        status: 'error',
-        errorMessage: err?.message || 'Document processing failed. Please retry.'
+        status: 'saved_unindexed',
+        isRetryingIndex: false,
+        errorMessage: err?.message || 'Indexing retry failed. Please try again later.'
       } : null);
     }
   };
@@ -164,7 +268,7 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     const query = (textToSend || inputText).trim();
     if (!query) return;
 
-    if (attachment?.status === 'processing') {
+    if (attachment?.status === 'processing' || attachment?.status === 'saving_and_indexing') {
       alert('Your document is currently being analyzed and indexed. Please wait a moment before sending.');
       return;
     }
@@ -189,7 +293,10 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
           text: result.text,
           timestamp: 'Just now',
           citations: result.citations,
-          isEmergencyAlert: result.isEmergency
+          isEmergencyAlert: result.isEmergency,
+          retrievalMode: result.retrievalMode,
+          provider: result.provider,
+          model: result.model
         };
         setMessages(prev => [...prev, botMsg]);
         setIsTyping(false);
@@ -358,7 +465,7 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
                   {msg.citations.map((cite, idx) => (
                     <button
                       key={idx}
-                      onClick={() => onViewRecord && onViewRecord(cite.recordId)}
+                      onClick={() => onViewRecord && cite.recordId && onViewRecord(cite.recordId)}
                       className="w-full flex items-center justify-between p-2.5 rounded-xl bg-teal-50/80 hover:bg-teal-100/80 text-teal-900 border border-teal-200/70 text-left transition-colors group"
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -450,40 +557,76 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
                   <div className="text-xs font-bold text-slate-800 truncate" title={attachment.name}>
                     {attachment.name}
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+                  <div className="flex items-center flex-wrap gap-2 text-[10px] text-slate-500 mt-0.5">
                     <span>{attachment.sizeFormatted}</span>
                     <span>·</span>
                     {attachment.status === 'processing' && (
                       <span className="flex items-center gap-1 text-teal-700 font-semibold animate-pulse">
                         <Loader2 className="w-3 h-3 animate-spin" />
-                        Analyzing & indexing...
+                        Analyzing candidate document...
+                      </span>
+                    )}
+                    {attachment.status === 'saving_and_indexing' && (
+                      <span className="flex items-center gap-1 text-teal-700 font-semibold animate-pulse">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Saving & indexing for AI search...
                       </span>
                     )}
                     {attachment.status === 'indexed' && (
                       <span className="flex items-center gap-1 text-emerald-700 font-bold">
                         <CheckCircle2 className="w-3 h-3" />
-                        Indexed for AI search
+                        Indexed for AI search ({attachment.chunksIndexed ?? 1} chunk{attachment.chunksIndexed === 1 ? '' : 's'})
+                      </span>
+                    )}
+                    {attachment.status === 'saved_unindexed' && (
+                      <span className="flex items-center gap-1 text-amber-700 font-semibold truncate" title={attachment.errorMessage}>
+                        <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                        Saved, but search indexing failed
                       </span>
                     )}
                     {attachment.status === 'error' && (
                       <span className="flex items-center gap-1 text-rose-600 font-semibold truncate" title={attachment.errorMessage}>
                         <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                        {attachment.errorMessage || 'Indexing failed'}
+                        {attachment.errorMessage || 'Upload or processing failed'}
                       </span>
                     )}
                   </div>
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setAttachment(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                title="Remove attachment"
-                aria-label="Remove attachment"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {attachment.status === 'saved_unindexed' && attachment.recordId && (
+                  <button
+                    type="button"
+                    onClick={handleRetryIndexing}
+                    disabled={attachment.isRetryingIndex}
+                    className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-semibold flex items-center gap-1 transition-colors disabled:opacity-50"
+                    title="Retry search indexing for this saved document"
+                  >
+                    {attachment.isRetryingIndex ? (
+                      <>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>Retrying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RotateCw className="w-3 h-3" />
+                        <span>Retry Indexing</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setAttachment(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  title="Dismiss attachment"
+                  aria-label="Dismiss attachment"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -547,7 +690,12 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
             {/* Send button */}
             <button
               type="submit"
-              disabled={!inputText.trim() || attachment?.status === 'processing'}
+              disabled={
+                !inputText.trim() || 
+                attachment?.status === 'processing' || 
+                attachment?.status === 'saving_and_indexing' || 
+                attachment?.isRetryingIndex
+              }
               className="p-2.5 sm:p-3 rounded-2xl bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-40 disabled:hover:bg-teal-700 transition-colors shadow-xs flex-shrink-0"
               title="Send message"
               aria-label="Send message"
