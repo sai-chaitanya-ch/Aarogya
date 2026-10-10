@@ -1,5 +1,9 @@
 """
 Aarogya — Authentication, Role Resolution, and OAuth Signup Intent Contract Tests
+
+NOTE: These tests are fast in-memory contract tests verifying the state machine,
+role resolution boundaries, age calculations, and intent protocols implemented in AuthContext.
+They do not execute remote network calls to Google OAuth endpoints.
 """
 import time
 import pytest
@@ -15,6 +19,10 @@ def resolve_role_and_intent(
 ) -> dict:
     """
     Python mirror of Aarogya's AuthContext resolveAccountRoleAndProfile logic.
+    Hardcoded email checks are prohibited; role resolution depends strictly on:
+    1. Validated OAuth signup intent for genuinely new accounts
+    2. Persisted records in doctor_profiles / profiles
+    3. User metadata fallback
     """
     if now_ms is None:
         now_ms = int(time.time() * 1000)
@@ -29,7 +37,6 @@ def resolve_role_and_intent(
     created_at_str = auth_user.get("created_at")
     created_at_ms = 0
     if created_at_str:
-        # ISO parsing or numeric epoch
         try:
             import datetime
             dt = datetime.datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
@@ -48,32 +55,19 @@ def resolve_role_and_intent(
     auth_error = None
     created_doc_profile = None
 
-    # Demo doctor linking check
-    email = (auth_user.get("email") or "").lower()
-    if email == "doctor@gmail.com" and not db_doctor_profile:
-        created_doc_profile = {
-            "id": user_id,
-            "full_name": auth_user.get("user_metadata", {}).get("full_name") or "Dr. Demo Practitioner",
-            "qualifications": "MBBS, MD (General Medicine)",
-            "specialty": "General Medicine",
-            "registration_number": f"DEMO-DOC-{user_id[:8].upper()}",
-            "clinic_name": "Aarogya Healthcare Network (Demo)",
-            "clinic_address": "Apollo Medical District, Hyderabad, India",
-            "is_verified": False,
-        }
-
     # Handle OAuth intent for newly registered accounts
+    # CRITICAL: No role assignment based solely on hardcoded email address!
     if valid_intent and valid_intent.get("mode") == "signup":
         if is_new_account:
             if valid_intent.get("role") == "doctor":
                 created_doc_profile = {
                     "id": user_id,
                     "full_name": auth_user.get("user_metadata", {}).get("full_name") or "Doctor",
-                    "qualifications": "Medical Practitioner (Unverified)",
-                    "specialty": "General Medicine",
-                    "registration_number": f"DOC-{user_id[:8].upper()}",
-                    "clinic_name": "Aarogya Healthcare Network (Pending Verification)",
-                    "clinic_address": "India",
+                    "qualifications": "Pending Verification (No Credentials Verified)",
+                    "specialty": "General Practice (Unverified)",
+                    "registration_number": f"UNVERIFIED-{user_id[:8].upper()}",
+                    "clinic_name": "Unverified Practice (Pending Review)",
+                    "clinic_address": "Verification in progress",
                     "is_verified": False,
                 }
         else:
@@ -155,13 +149,15 @@ def test_2_new_user_selects_doctor_google_signup():
     assert res["created_doc_profile"] is not None
     assert res["created_doc_profile"]["is_verified"] is False
     assert res["created_doc_profile"]["id"] == user_id
+    # Assert placeholder credentials are completely unverified without fictional medical claims
+    assert "Pending Verification" in res["created_doc_profile"]["qualifications"]
+    assert "Unverified Practice" in res["created_doc_profile"]["clinic_name"]
 
 
 def test_3_oauth_signup_intent_consumed_once():
     intent_consumed = False
     storage = {"aarogya_oauth_signup_intent": '{"role": "doctor", "mode": "signup", "timestamp": 123}'}
 
-    # Simulate retrieval
     val = storage.get("aarogya_oauth_signup_intent")
     if val:
         del storage["aarogya_oauth_signup_intent"]
@@ -169,14 +165,12 @@ def test_3_oauth_signup_intent_consumed_once():
 
     assert intent_consumed is True
     assert "aarogya_oauth_signup_intent" not in storage
-    # Second retrieval is None
     assert storage.get("aarogya_oauth_signup_intent") is None
 
 
 def test_4_existing_patient_with_doctor_oauth_intent_retains_patient():
     now_ms = 1700000000000
     user_id = "patient-old-99"
-    # Account created 10 days ago
     auth_user = {
         "id": user_id,
         "email": "oldpatient@gmail.com",
@@ -208,7 +202,7 @@ def test_5_existing_doctor_with_patient_oauth_intent_retains_doctor():
         "email": "olddoc@gmail.com",
         "created_at": "2023-11-04T22:13:20Z",
     }
-    existing_doc_profile = {"id": user_id, "is_verified": True}
+    existing_doc_profile = {"id": user_id, "is_verified": False}
     existing_patient_profile = {"id": user_id, "full_name": "Dr. Old"}
     intent = {"role": "patient", "mode": "signup", "timestamp": now_ms - 3000}
 
@@ -223,13 +217,102 @@ def test_5_existing_doctor_with_patient_oauth_intent_retains_doctor():
     assert res["is_new_account"] is False
     assert res["active_role"] == "doctor"
     assert res["is_doctor_account"] is True
-    assert res["is_doctor_verified"] is True
+    assert res["is_doctor_verified"] is False
     assert "already registered as a doctor" in res["auth_notice"]
 
 
-def test_6_account_creation_time_age_boundaries():
+def test_6_no_runtime_role_assignment_solely_by_email():
     now_ms = 1700000000000
-    user_id = "user-age-check"
+    user_id = "user-doctor-email-only"
+    # Even if email is doctor@gmail.com, if no doctor_profiles record exists and it's an existing account,
+    # it must NOT be assigned a doctor role
+    auth_user = {
+        "id": user_id,
+        "email": "doctor@gmail.com",
+        "created_at": "2023-10-01T10:00:00Z",
+    }
+    existing_patient_profile = {"id": user_id, "full_name": "Existing Patient"}
+
+    res = resolve_role_and_intent(
+        user_id=user_id,
+        auth_user=auth_user,
+        db_doctor_profile=None,
+        db_patient_profile=existing_patient_profile,
+        oauth_intent=None,
+        now_ms=now_ms,
+    )
+    assert res["is_doctor_account"] is False
+    assert res["active_role"] == "patient"
+    assert res["created_doc_profile"] is None
+
+
+def test_7_provisioned_demo_doctor_account_resolution():
+    now_ms = 1700000000000
+    user_id = "provisioned-doctor-uuid"
+    auth_user = {
+        "id": user_id,
+        "email": "doctor@gmail.com",
+        "created_at": "2023-10-01T10:00:00Z",
+    }
+    # Database has doctor_profiles row created via safe provisioning script
+    provisioned_doc_profile = {
+        "id": user_id,
+        "full_name": "Demo Practitioner (Unverified)",
+        "qualifications": "Pending Verification (Demo Account - No Credentials Verified)",
+        "is_verified": False,
+    }
+
+    res = resolve_role_and_intent(
+        user_id=user_id,
+        auth_user=auth_user,
+        db_doctor_profile=provisioned_doc_profile,
+        db_patient_profile=None,
+        oauth_intent=None,
+        now_ms=now_ms,
+    )
+    assert res["is_doctor_account"] is True
+    assert res["is_doctor_verified"] is False
+    assert res["active_role"] == "doctor"
+    assert res["created_doc_profile"] is None
+
+
+def test_8_email_password_signup_doctor_profile_unverified():
+    user_id = "doc-email-signup"
+    name = "Dr. Test Doctor"
+    doc_upsert = {
+        "id": user_id,
+        "full_name": name,
+        "qualifications": "Pending Verification (No Credentials Verified)",
+        "specialty": "General Practice (Unverified)",
+        "registration_number": f"UNVERIFIED-{user_id[:8].upper()}",
+        "clinic_name": "Unverified Practice (Pending Review)",
+        "clinic_address": "Verification in progress",
+        "is_verified": False,
+    }
+
+    assert doc_upsert["is_verified"] is False
+    assert "Pending Verification" in doc_upsert["qualifications"]
+    assert "Unverified Practice" in doc_upsert["clinic_name"]
+
+
+def test_9_oauth_error_url_sanitization():
+    url_hash = "#error=access_denied&error_code=403&error_description=User+cancelled+Google+sign+in"
+    hash_params = {}
+    for part in url_hash.lstrip("#").split("&"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            hash_params[k] = v
+
+    error_desc = hash_params.get("error_description", "").replace("+", " ")
+    error_code = hash_params.get("error_code")
+
+    assert error_code == "403"
+    assert error_desc == "User cancelled Google sign in"
+
+
+def test_10_account_creation_time_age_boundaries():
+    now_ms = 1700000000000
+    user_id = "user-age-boundary"
 
     # Exactly 2 minutes old -> considered new if profiles don't exist
     auth_user_2min = {
@@ -262,109 +345,13 @@ def test_6_account_creation_time_age_boundaries():
     assert res_10min["is_new_account"] is False
 
 
-def test_7_email_password_signup_patient():
-    role_selected = "patient"
-    profile_upsert = {"full_name": "Email Patient", "preferred_language": "en"}
-    doc_upsert = None
-
-    if role_selected == "doctor":
-        doc_upsert = {"qualifications": "Medical Practitioner (Unverified)"}
-
-    assert role_selected == "patient"
-    assert profile_upsert["full_name"] == "Email Patient"
-    assert doc_upsert is None
-
-
-def test_8_email_password_signup_doctor():
-    role_selected = "doctor"
-    user_id = "doc-email-signup"
-    name = "Dr. Suresh Varma"
-    profile_upsert = {"id": user_id, "full_name": name, "preferred_language": "en"}
-    doc_upsert = None
-
-    if role_selected == "doctor":
-        doc_upsert = {
-            "id": user_id,
-            "full_name": name,
-            "qualifications": "Medical Practitioner (Unverified)",
-            "specialty": "General Medicine",
-            "registration_number": f"REG-{user_id[:8].upper()}",
-            "clinic_name": "Aarogya Healthcare Network",
-            "clinic_address": "India",
-            "is_verified": False,
-        }
-
-    assert doc_upsert is not None
-    assert doc_upsert["is_verified"] is False
-    assert doc_upsert["full_name"] == name
-    assert doc_upsert["registration_number"] == f"REG-{user_id[:8].upper()}"
-
-
-def test_9_oauth_error_url_parsing_and_sanitization():
-    # Simulate url with error params
-    url_hash = "#error=access_denied&error_code=403&error_description=User+cancelled+Google+sign+in"
-    hash_params = {}
-    for part in url_hash.lstrip("#").split("&"):
-        if "=" in part:
-            k, v = part.split("=", 1)
-            hash_params[k] = v
-
-    error_desc = hash_params.get("error_description", "").replace("+", " ")
-    error_code = hash_params.get("error_code")
-
-    assert error_code == "403"
-    assert error_desc == "User cancelled Google sign in"
-
-
-def test_10_demo_patient_credentials_prefill_and_auth():
-    demo_email = "test@gmail.com"
-    demo_role = "patient"
-    password = ""  # Evaluator enters password
-
-    assert demo_email == "test@gmail.com"
-    assert demo_role == "patient"
-    assert password == ""
-
-
-def test_11_demo_doctor_credentials_prefill_and_auto_linking():
-    now_ms = 1700000000000
-    user_id = "doc-demo-uid-999"
-    auth_user = {
-        "id": user_id,
-        "email": "doctor@gmail.com",
-        "created_at": "2023-11-14T22:13:20Z",
-        "user_metadata": {"full_name": "Dr. Demo Doctor"},
-    }
-
-    res = resolve_role_and_intent(
-        user_id=user_id,
-        auth_user=auth_user,
-        db_doctor_profile=None,
-        db_patient_profile=None,
-        oauth_intent=None,
-        now_ms=now_ms,
-    )
-    assert res["is_doctor_account"] is True
-    assert res["is_doctor_verified"] is False
-    assert res["active_role"] == "doctor"
-    assert res["created_doc_profile"] is not None
-    assert res["created_doc_profile"]["id"] == user_id
-    assert res["created_doc_profile"]["is_verified"] is False
-    assert "DEMO-DOC-" in res["created_doc_profile"]["registration_number"]
-
-
-def test_12_role_switch_authorization():
+def test_11_role_switch_authorization():
     # Patient account cannot switch to doctor role
     patient_is_doctor = False
     current_role = "patient"
     target_role = "doctor"
 
-    if target_role == "doctor" and not patient_is_doctor:
-        # Switch denied
-        final_role = current_role
-    else:
-        final_role = target_role
-
+    final_role = current_role if (target_role == "doctor" and not patient_is_doctor) else target_role
     assert final_role == "patient"
 
     # Doctor account can freely switch
@@ -372,9 +359,5 @@ def test_12_role_switch_authorization():
     doc_current_role = "doctor"
     doc_target_role = "patient"
 
-    if doc_target_role == "doctor" and not doctor_is_doctor:
-        doc_final_role = doc_current_role
-    else:
-        doc_final_role = doc_target_role
-
+    doc_final_role = doc_current_role if (doc_target_role == "doctor" and not doctor_is_doctor) else doc_target_role
     assert doc_final_role == "patient"

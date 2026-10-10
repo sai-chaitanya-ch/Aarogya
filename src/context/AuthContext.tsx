@@ -118,27 +118,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         !existingDocProfile && 
         !existingPatientProfile;
 
-      // Handle demo test doctor account linking
-      const isDemoDoctorEmail = authUser?.email?.toLowerCase() === 'doctor@gmail.com';
-      if (isDemoDoctorEmail && !existingDocProfile) {
-        try {
-          const docName = authUser?.user_metadata?.full_name || 'Dr. Demo Practitioner';
-          await supabase.from('doctor_profiles').insert({
-            id: userId,
-            full_name: docName.startsWith('Dr.') ? docName : `Dr. ${docName}`,
-            qualifications: 'MBBS, MD (General Medicine)',
-            specialty: 'General Medicine',
-            registration_number: `DEMO-DOC-${userId.slice(0, 8).toUpperCase()}`,
-            clinic_name: 'Aarogya Healthcare Network (Demo)',
-            clinic_address: 'Apollo Medical District, Hyderabad, India',
-            is_verified: false
-          });
-        } catch (demoDocErr) {
-          console.warn('Failed to auto-link demo doctor profile:', demoDocErr);
-        }
-      }
-
       // Handle OAuth intent for newly registered accounts
+      // Note: Existing accounts never receive automatic role assignment; their existing database role is retained.
       if (oauthIntent && oauthIntent.mode === 'signup') {
         if (isNewAccount) {
           if (oauthIntent.role === 'doctor') {
@@ -147,11 +128,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               const { error: insertDocError } = await supabase.from('doctor_profiles').insert({
                 id: userId,
                 full_name: docName.startsWith('Dr.') ? docName : `Dr. ${docName}`,
-                qualifications: 'Medical Practitioner (Unverified)',
-                specialty: 'General Medicine',
-                registration_number: `DOC-${userId.slice(0, 8).toUpperCase()}`,
-                clinic_name: 'Aarogya Healthcare Network (Pending Verification)',
-                clinic_address: 'India',
+                qualifications: 'Pending Verification (No Credentials Verified)',
+                specialty: 'General Practice (Unverified)',
+                registration_number: `UNVERIFIED-${userId.slice(0, 8).toUpperCase()}`,
+                clinic_name: 'Unverified Practice (Pending Review)',
+                clinic_address: 'Verification in progress',
                 is_verified: false
               });
 
@@ -520,11 +501,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await supabase.from('doctor_profiles').upsert({
               id: data.user.id,
               full_name: name.startsWith('Dr.') ? name : `Dr. ${name}`,
-              qualifications: 'Medical Practitioner (Unverified)',
-              specialty: 'General Medicine',
-              registration_number: `REG-${data.user.id.slice(0, 8).toUpperCase()}`,
-              clinic_name: 'Aarogya Healthcare Network',
-              clinic_address: 'India',
+              qualifications: 'Pending Verification (No Credentials Verified)',
+              specialty: 'General Practice (Unverified)',
+              registration_number: `UNVERIFIED-${data.user.id.slice(0, 8).toUpperCase()}`,
+              clinic_name: 'Unverified Practice (Pending Review)',
+              clinic_address: 'Verification in progress',
               is_verified: false
             });
           } catch (e) {
