@@ -24,7 +24,7 @@ logger = logging.getLogger("aarogya.models")
 
 GEMINI_MODEL_DEFAULT = "gemini-3.8-flash"
 GEMINI_MODELS_DEFAULT = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash"
-GROQ_MODELS_DEFAULT = "llama-3.3-70b-versatile,llama-3.1-8b-instant"
+GROQ_MODELS_DEFAULT = "openai/gpt-oss-120b,openai/gpt-oss-20b"
 
 DEPRECATED_GEMINI_MODELS = {
     "gemini-2.0-flash",
@@ -35,9 +35,17 @@ DEPRECATED_GEMINI_MODELS = {
 }
 
 DEPRECATED_GROQ_MODELS = {
+    # Groq deprecated Llama free/developer-tier models starting August 16, 2026
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "llama-3.1-70b-versatile",
+    "llama-3.2-1b-preview",
+    "llama-3.2-3b-preview",
+    "llama3-70b-8192",
+    "llama3-8b-8192",
     "mixtral-8x7b-32768",
-    "qwen/qwen3.8-27b",
-    "openai/gpt-oss-120b",
+    "gemma-7b-it",
+    "gemma2-9b-it",
 }
 
 GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -112,7 +120,7 @@ def get_candidate_groq_models() -> List[str]:
     if configured:
         raw = _csv_env("GROQ_MODELS", "")
     else:
-        raw = _csv_env("GROQ_MODELS", GROQ_MODELS_DEFAULT)
+        raw = _csv_env("GROQ_MODELS_DEFAULT", GROQ_MODELS_DEFAULT)
 
     models: List[str] = []
     for model in raw:
@@ -121,7 +129,13 @@ def get_candidate_groq_models() -> List[str]:
             models.append(m)
 
     if not models:
-        models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        # Never fall back to deprecated models; return verified active models
+        for model in _csv_env("GROQ_MODELS_DEFAULT", GROQ_MODELS_DEFAULT):
+            m = model.strip()
+            if m and m not in DEPRECATED_GROQ_MODELS and m not in models:
+                models.append(m)
+        if not models:
+            models = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
     return models
 
 

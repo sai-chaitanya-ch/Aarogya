@@ -34,16 +34,16 @@ def test_document_text_includes_source_ocr_and_metadata():
 def test_model_router_falls_back_from_gemini_to_groq(monkeypatch):
     calls = []
     monkeypatch.setenv("GEMINI_MODELS", "gemini-3.8-flash")
-    monkeypatch.setenv("GROQ_MODELS", "llama-3.3-70b-versatile,llama-3.1-8b-instant")
+    monkeypatch.setenv("GROQ_MODELS", "openai/gpt-oss-120b,openai/gpt-oss-20b")
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GROQ_API_KEY", "test-key")
 
     monkeypatch.setattr(gemini_service, "_call_gemini", lambda *a, **k: calls.append(("gemini", a[2])) or None)
-    monkeypatch.setattr(gemini_service, "_call_groq", lambda *a, **k: calls.append(("groq", a[2])) or ("A grounded response." if a[2] == "llama-3.1-8b-instant" else None))
+    monkeypatch.setattr(gemini_service, "_call_groq", lambda *a, **k: calls.append(("groq", a[2])) or ("A grounded response." if a[2] == "openai/gpt-oss-120b" else None))
     result = gemini_service.generate_text("hi", system_instruction="be safe")
 
     assert result.provider == "groq"
-    assert result.model == "llama-3.1-8b-instant"
+    assert result.model == "openai/gpt-oss-120b"
     assert result.fallback_used is True
     assert calls[0] == ("gemini", "gemini-3.8-flash")
 
@@ -84,7 +84,7 @@ def test_gemini_quota_exhausted_fast_failover_to_groq(monkeypatch):
     groq_calls = []
 
     monkeypatch.setenv("GEMINI_MODELS", "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash")
-    monkeypatch.setenv("GROQ_MODELS", "llama-3.3-70b-versatile")
+    monkeypatch.setenv("GROQ_MODELS", "openai/gpt-oss-120b")
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GROQ_API_KEY", "test-key")
 
@@ -120,9 +120,9 @@ def test_groq_rejected_for_image_when_allow_groq_is_false():
 
 
 def test_deprecated_models_are_filtered_from_candidates(monkeypatch):
-    """Deprecated models (e.g., 2.0-flash, 1.5-flash, mixtral) are stripped out."""
+    """Deprecated models (e.g., 2.0-flash, 1.5-flash, llama-3.3, mixtral) are stripped out, while supported models are kept."""
     monkeypatch.setenv("GEMINI_MODELS", "gemini-2.0-flash,gemini-3.8-flash,gemini-1.5-flash")
-    monkeypatch.setenv("GROQ_MODELS", "qwen/qwen3.8-27b,llama-3.3-70b-versatile,openai/gpt-oss-120b")
+    monkeypatch.setenv("GROQ_MODELS", "llama-3.3-70b-versatile,qwen/qwen3.8-27b,mixtral-8x7b-32768,openai/gpt-oss-120b,llama-3.1-8b-instant")
 
     gemini_candidates = gemini_service.get_candidate_gemini_models()
     groq_candidates = gemini_service.get_candidate_groq_models()
@@ -131,9 +131,25 @@ def test_deprecated_models_are_filtered_from_candidates(monkeypatch):
     assert "gemini-1.5-flash" not in gemini_candidates
     assert "gemini-3.8-flash" in gemini_candidates
 
-    assert "qwen/qwen3.8-27b" not in groq_candidates
-    assert "openai/gpt-oss-120b" not in groq_candidates
-    assert "llama-3.3-70b-versatile" in groq_candidates
+    # Deprecated Llama and Mixtral models are excluded
+    assert "llama-3.3-70b-versatile" not in groq_candidates
+    assert "llama-3.1-8b-instant" not in groq_candidates
+    assert "mixtral-8x7b-32768" not in groq_candidates
+
+    # Supported Qwen and GPT-OSS models are retained
+    assert "qwen/qwen3.8-27b" in groq_candidates
+    assert "openai/gpt-oss-120b" in groq_candidates
+
+
+def test_groq_empty_or_all_deprecated_config_falls_back_to_verified_models(monkeypatch):
+    """When configured models are all deprecated, router falls back to verified active models and never deprecated ones."""
+    monkeypatch.setenv("GROQ_MODELS", "llama-3.3-70b-versatile,llama-3.1-8b-instant,mixtral-8x7b-32768")
+    groq_candidates = gemini_service.get_candidate_groq_models()
+
+    assert groq_candidates == ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+    assert "llama-3.3-70b-versatile" not in groq_candidates
+    assert "llama-3.1-8b-instant" not in groq_candidates
+    assert "mixtral-8x7b-32768" not in groq_candidates
 
 
 def test_rag_embed_retries_on_transient_503(monkeypatch):
