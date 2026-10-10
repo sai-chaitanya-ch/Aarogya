@@ -129,6 +129,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
           </button>
         </div>
 
+        {/* Quick Fill Demo Credentials */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-2.5 space-y-1.5">
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
+            <span>Demo Test Credentials</span>
+            <span className="text-[10px] text-teal-700 font-semibold">1-Click Fill</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('patient.demo@aarogya.in');
+                setPassword('DemoPassword123!');
+                setFullName('Ramesh Kumar (Demo Patient)');
+                setSelectedRole('patient');
+                setErrorMsg(null);
+              }}
+              className="py-1.5 px-2 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl text-[11px] font-semibold text-slate-700 hover:text-teal-900 transition-all flex items-center justify-center gap-1 shadow-2xs"
+            >
+              <User className="w-3 h-3 text-teal-600" />
+              <span>Test Patient</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('doctor.demo@aarogya.in');
+                setPassword('DemoPassword123!');
+                setFullName('Dr. Priya Sharma (Demo Doctor)');
+                setSelectedRole('doctor');
+                setErrorMsg(null);
+              }}
+              className="py-1.5 px-2 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl text-[11px] font-semibold text-slate-700 hover:text-teal-900 transition-all flex items-center justify-center gap-1 shadow-2xs"
+            >
+              <Stethoscope className="w-3 h-3 text-teal-600" />
+              <span>Test Doctor</span>
+            </button>
+          </div>
+        </div>
+
         {/* Tab switch */}
         <div className="flex border-b border-slate-100 text-xs font-bold text-center">
           <button
@@ -232,6 +270,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
           </svg>
           <span>Continue with Google</span>
         </button>
+
+        <p className="text-[10px] text-slate-400 text-center leading-tight">
+          Email & Password login or Demo Accounts are active and recommended for testing.
+        </p>
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ interface AskAarogyaChatProps {
   initialPrompt?: string;
   onBack: () => void;
   onViewRecord?: (recordId: string) => void;
+  onOpenAuthModal?: () => void;
 }
 
 export type AttachmentStatus =
@@ -41,10 +42,12 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
   records,
   initialPrompt,
   onBack,
-  onViewRecord
+  onViewRecord,
+  onOpenAuthModal
 }) => {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { addRecord } = useHealthData();
+  const [speechError, setSpeechError] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const greetingText = records.length > 0
@@ -110,6 +113,12 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
     if (!allowedMimes.includes(file.type)) {
       alert('Supported formats: PDF, JPEG, PNG, and WebP (up to 20 MB).');
+      return;
+    }
+
+    if (!isAuthenticated) {
+      if (onOpenAuthModal) onOpenAuthModal();
+      alert('Please sign in or use a demo account to attach and index medical records in your health vault.');
       return;
     }
 
@@ -268,6 +277,28 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     const query = (textToSend || inputText).trim();
     if (!query) return;
 
+    if (!isAuthenticated) {
+      const userMsg: ChatMessage = {
+        id: `usr_${Date.now()}`,
+        sender: 'user',
+        text: query,
+        timestamp: 'Just now'
+      };
+      const guestNotice: ChatMessage = {
+        id: `ai_${Date.now()}`,
+        sender: 'aarogya',
+        text: 'Aarogya AI requires an active account to provide personalized medical guidance and protect your health data privacy. Please sign in or use one of the test accounts above to start chatting.',
+        timestamp: 'Just now',
+        citations: []
+      };
+      setMessages(prev => [...prev, userMsg, guestNotice]);
+      setInputText('');
+      if (onOpenAuthModal) {
+        onOpenAuthModal();
+      }
+      return;
+    }
+
     if (attachment?.status === 'processing' || attachment?.status === 'saving_and_indexing') {
       alert('Your document is currently being analyzed and indexed. Please wait a moment before sending.');
       return;
@@ -319,12 +350,8 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
   // Web Speech API Voice Recognition
   const toggleSpeechRecognition = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      // Fallback simulation
-      setIsListening(true);
-      setTimeout(() => {
-        setIsListening(false);
-        setInputText(language === 'te' ? 'నా చివరి రక్త పరీక్ష గురించి వివరించండి' : 'Explain my latest blood test in simple language');
-      }, 1500);
+      setSpeechError('Voice input is not supported in this browser. Please type your message or use Google Chrome / Microsoft Edge.');
+      setTimeout(() => setSpeechError(null), 6000);
       return;
     }
 
@@ -416,6 +443,42 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Guest Notice Banner */}
+      {!isAuthenticated && (
+        <div className="flex-shrink-0 mx-3.5 sm:mx-4 mt-3 mb-1 p-3 bg-teal-50 border border-teal-200/80 rounded-2xl flex items-center justify-between gap-3 text-xs text-teal-900 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-4 h-4 text-teal-700 shrink-0" />
+            <span className="text-[11px] leading-snug">
+              Sign in with email or one of the demo accounts to chat with Aarogya AI and query your private medical documents.
+            </span>
+          </div>
+          {onOpenAuthModal && (
+            <button
+              onClick={onOpenAuthModal}
+              className="shrink-0 px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-xl text-xs transition-colors shadow-xs"
+            >
+              Sign In
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Speech Support Warning Banner */}
+      {speechError && (
+        <div className="flex-shrink-0 mx-3.5 sm:mx-4 mt-2 p-2.5 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-center justify-between gap-2 shadow-2xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span className="text-[11px]">{speechError}</span>
+          </div>
+          <button
+            onClick={() => setSpeechError(null)}
+            className="text-amber-700 hover:text-amber-900 p-0.5"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Messages Scroll Area - ONLY this region scrolls vertically */}
       <div 

@@ -222,6 +222,7 @@ function AarogyaAppContent() {
                     setActiveRecordForSummary(rec);
                     setPatientView('summary');
                   }}
+                  onOpenAuthModal={() => setIsAuthModalOpen(true)}
                 />
               ) : patientView === 'summary' ? (
                 /* Understand / Report Summary */
@@ -261,6 +262,7 @@ function AarogyaAppContent() {
                       setPatientView('summary');
                     }
                   }}
+                  onOpenAuthModal={() => setIsAuthModalOpen(true)}
                 />
               ) : patientView === 'library' ? (
                 /* Medical Library */

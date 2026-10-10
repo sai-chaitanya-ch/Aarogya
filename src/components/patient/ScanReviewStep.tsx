@@ -14,6 +14,7 @@ interface ScanReviewStepProps {
   onSaveRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<any> | any;
   onCancel: () => void;
   onViewSummary: (record: MedicalRecord) => void;
+  onOpenAuthModal?: () => void;
 }
 
 const DOCUMENT_CATEGORIES: DocumentType[] = [
@@ -28,10 +29,11 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   language,
   onSaveRecord,
   onCancel,
-  onViewSummary
+  onViewSummary,
+  onOpenAuthModal
 }) => {
   const t = translations[language];
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   // Candidate extraction state & errors
   const [processedRecord, setProcessedRecord] = useState<MedicalRecord | null>(null);
@@ -98,6 +100,12 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const handleSave = async () => {
     if (!customFile) {
       setSaveError('Please select or capture a real medical document before saving.');
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setSaveError('Sign in to save medical records to your secure health vault. Your reviewed document will be preserved.');
+      if (onOpenAuthModal) onOpenAuthModal();
       return;
     }
 
@@ -231,12 +239,44 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
 
         {/* Save Error Banner */}
         {saveError && (
-          <div className="mt-3 p-3 bg-red-50 border border-red-200 text-red-900 rounded-xl text-xs flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <div className="font-bold">Save failed</div>
-              <div className="text-[11px] text-red-800 mt-0.5">{saveError}</div>
+          <div className="mt-3 p-3 bg-red-50 border border-red-200 text-red-900 rounded-xl text-xs flex items-start justify-between gap-3 shadow-2xs">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold">Save failed</div>
+                <div className="text-[11px] text-red-800 mt-0.5">{saveError}</div>
+              </div>
             </div>
+            {onOpenAuthModal && (saveError.toLowerCase().includes('sign in') || saveError.toLowerCase().includes('authenticated')) && (
+              <button
+                type="button"
+                onClick={onOpenAuthModal}
+                className="shrink-0 px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-xl transition-colors shadow-xs"
+              >
+                Sign In Now
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Guest Review Notice */}
+        {!isAuthenticated && customFile && !saveError && (
+          <div className="mt-3 p-3 bg-teal-50 border border-teal-200/80 rounded-xl text-xs text-teal-900 flex items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-teal-700 shrink-0" />
+              <span className="text-[11px]">
+                You are reviewing this scan in guest mode. Sign in to save this document to your private medical records vault.
+              </span>
+            </div>
+            {onOpenAuthModal && (
+              <button
+                type="button"
+                onClick={onOpenAuthModal}
+                className="shrink-0 px-3 py-1 bg-teal-700 hover:bg-teal-800 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs"
+              >
+                Sign In
+              </button>
+            )}
           </div>
         )}
 
