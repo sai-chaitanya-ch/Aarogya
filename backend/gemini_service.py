@@ -20,9 +20,9 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=False)
 
 logger = logging.getLogger("aarogya.models")
 
-GEMINI_MODEL_DEFAULT = "gemini-3.8-flash"
-GEMINI_MODEL_BACKUP = "gemini-3.5-flash-lite"
-GROQ_MODELS_DEFAULT = "qwen/qwen3.8-27b,openai/gpt-oss-120b"
+GEMINI_MODEL_DEFAULT = "gemini-2.0-flash"
+GEMINI_MODEL_BACKUP = "gemini-1.5-flash"
+GROQ_MODELS_DEFAULT = "llama-3.3-70b-versatile,llama-3.1-8b-instant"
 GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -50,7 +50,7 @@ def get_candidate_gemini_models() -> List[str]:
     else:
         primary = os.getenv("GEMINI_MODEL", GEMINI_MODEL_DEFAULT).strip()
         candidates = [primary] if primary else []
-    for model in [GEMINI_MODEL_BACKUP, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+    for model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-3.8-flash", "gemini-3.5-flash-lite"]:
         if model not in candidates:
             candidates.append(model)
     return candidates
@@ -58,7 +58,7 @@ def get_candidate_gemini_models() -> List[str]:
 
 def get_candidate_groq_models() -> List[str]:
     models = _csv_env("GROQ_MODELS", GROQ_MODELS_DEFAULT)
-    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+    for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]:
         if model not in models:
             models.append(model)
     return models

@@ -29,7 +29,10 @@ import { PatientProfileView } from './components/patient/PatientProfileView';
 import { DoctorPortal } from './components/doctor/DoctorPortal';
 
 function AarogyaAppContent() {
-  const { user, role, setRole, updateUserProfile, isAuthenticated, isLoading, signOut } = useAuth();
+  const { 
+    user, role, setRole, isDoctorAccount, isDoctorVerified, 
+    updateUserProfile, isAuthenticated, isLoading, signOut 
+  } = useAuth();
   const { 
     records, reminders, appointments, 
     addRecord, deleteRecord, toggleReminderStatus, 
@@ -84,7 +87,7 @@ function AarogyaAppContent() {
   // 1. Loading state while verifying Supabase session
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#f8faf9] flex flex-col items-center justify-center p-6 text-center">
+      <div className="h-[100dvh] bg-[#f8faf9] flex flex-col items-center justify-center p-6 text-center">
         <AarogyaLogo size="lg" showSubtitle={true} />
         <div className="mt-6 flex items-center gap-2 text-teal-800 font-bold text-xs animate-pulse">
           <span>Verifying encrypted health session...</span>
@@ -96,7 +99,7 @@ function AarogyaAppContent() {
   // 2. Strict Authentication Wall: If unauthenticated, render AuthModal exclusively
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-slate-900/30 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+      <div className="h-[100dvh] bg-slate-900/30 backdrop-blur-sm flex flex-col items-center justify-center p-4">
         <AuthModal isOpen={true} canClose={false} />
       </div>
     );
@@ -104,14 +107,16 @@ function AarogyaAppContent() {
 
   // 3. Authenticated Application Experience
   return (
-    <div className="min-h-screen bg-slate-100/90 text-slate-800 flex flex-col font-sans">
+    <div className="h-[100dvh] bg-slate-100/90 text-slate-800 flex flex-col font-sans overflow-hidden">
       {/* Real-time Notification Toast */}
       <Toast message={notificationToast} onClose={clearNotificationToast} />
 
-      {/* Top Universal App Header with Real Logout */}
+      {/* Top Universal App Header */}
       <Header
         currentRole={role}
         onRoleChange={r => setRole(r)}
+        isDoctorAccount={isDoctorAccount}
+        isDoctorVerified={isDoctorVerified}
         language={language}
         onLanguageChange={handleLanguageChange}
         user={user}
@@ -130,10 +135,10 @@ function AarogyaAppContent() {
       />
 
       {/* Main Responsive Application Shell */}
-      <main className="flex-1 flex w-full max-w-7xl mx-auto min-h-0 overflow-hidden md:p-3 lg:p-4">
-        <div className="flex-1 flex w-full bg-white md:rounded-3xl md:border md:border-slate-200/80 md:shadow-xs overflow-hidden min-h-0">
+      <main className="flex-1 min-h-0 min-w-0 flex w-full max-w-7xl mx-auto overflow-hidden md:p-3 lg:p-4">
+        <div className="flex-1 min-h-0 min-w-0 flex w-full bg-white md:rounded-3xl md:border md:border-slate-200/80 md:shadow-xs overflow-hidden">
           {/* Desktop & Tablet Navigation Sidebar */}
-          <div className="hidden lg:flex h-full">
+          <div className="hidden lg:flex h-full flex-shrink-0">
             <AppSidebar
               currentRole={role}
               activeView={role === 'doctor' ? doctorTab : patientView}
@@ -154,12 +159,13 @@ function AarogyaAppContent() {
           </div>
 
           {/* Central Main Application View */}
-          <div className="flex-1 min-w-0 flex flex-col h-full overflow-y-auto">
+          <div className={`flex-1 min-w-0 min-h-0 flex flex-col h-full ${patientView === 'chat' && role === 'patient' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
             {role === 'doctor' ? (
               /* DOCTOR PORTAL WORKFLOW */
               <DoctorPortal
                 activeTab={doctorTab}
                 onTabChange={setDoctorTab}
+                isVerified={isDoctorVerified}
                 onSwitchToPatient={() => {
                   setRole('patient');
                   setPatientView('home');
@@ -170,7 +176,7 @@ function AarogyaAppContent() {
               />
             ) : (
               /* PATIENT WORKFLOW */
-              <div className="flex-1 flex flex-col justify-between min-h-full">
+              <div className={`flex-1 min-h-0 min-w-0 flex flex-col ${patientView === 'chat' ? 'h-full overflow-hidden' : 'justify-between min-h-full'}`}>
                 {/* Step 01 or Step 02 Onboarding */}
                 {onboardingStep !== null ? (
                 <OnboardingSteps

@@ -6,6 +6,8 @@ import { Language, UserProfile, ActiveMedicationReminder, Appointment } from '..
 interface HeaderProps {
   currentRole: 'patient' | 'doctor';
   onRoleChange: (role: 'patient' | 'doctor') => void;
+  isDoctorAccount?: boolean;
+  isDoctorVerified?: boolean;
   language: Language;
   onLanguageChange: (lang: Language) => void;
   user: UserProfile;
@@ -22,6 +24,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
   onRoleChange,
+  isDoctorAccount = false,
+  isDoctorVerified = false,
   language,
   onLanguageChange,
   user,
@@ -59,31 +63,43 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </div>
 
-        {/* Center: Quick Role Switcher Pill */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-full text-xs font-medium border border-slate-200/80">
-          <button
-            onClick={() => onRoleChange('patient')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-all ${
-              currentRole === 'patient'
-                ? 'bg-teal-700 text-white shadow-sm font-semibold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <User className="w-3.5 h-3.5" />
-            <span>Patient</span>
-          </button>
-          <button
-            onClick={() => onRoleChange('doctor')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-all ${
-              currentRole === 'doctor'
-                ? 'bg-teal-700 text-white shadow-sm font-semibold'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Stethoscope className="w-3.5 h-3.5" />
-            <span>Doctor Portal</span>
-          </button>
-        </div>
+        {/* Center: Current Workspace Indicator / Doctor Switcher */}
+        {isDoctorAccount ? (
+          <div className="flex items-center bg-slate-100 p-1 rounded-full text-xs font-medium border border-slate-200/80">
+            <button
+              onClick={() => onRoleChange('patient')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-all ${
+                currentRole === 'patient'
+                  ? 'bg-teal-700 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <User className="w-3.5 h-3.5" />
+              <span>Patient View</span>
+            </button>
+            <button
+              onClick={() => onRoleChange('doctor')}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-all ${
+                currentRole === 'doctor'
+                  ? 'bg-teal-700 text-white shadow-xs font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Stethoscope className="w-3.5 h-3.5" />
+              <span>Doctor Portal</span>
+              {!isDoctorVerified && (
+                <span className="text-[9px] bg-amber-500 text-white px-1.5 py-0.2 rounded-full font-bold ml-0.5">
+                  Pending
+                </span>
+              )}
+            </button>
+          </div>
+        ) : (
+          <div className="hidden sm:flex items-center gap-2 px-3.5 py-1 rounded-full bg-teal-50/90 text-teal-900 border border-teal-200/60 text-xs font-semibold select-none shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Patient Workspace</span>
+          </div>
+        )}
 
         {/* Right Actions: Language Selector, Notification Bell, User Avatar */}
         <div className="flex items-center gap-1.5 sm:gap-2">

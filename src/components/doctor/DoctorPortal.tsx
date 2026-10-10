@@ -14,15 +14,18 @@ interface DoctorPortalProps {
   onPublishPrescriptionToPatient?: (record: MedicalRecord) => void;
   activeTab?: 'home' | 'patients' | 'appointments' | 'messages' | 'profile';
   onTabChange?: (tab: 'home' | 'patients' | 'appointments' | 'messages' | 'profile') => void;
+  isVerified?: boolean;
 }
 
 export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   onSwitchToPatient,
   onPublishPrescriptionToPatient,
   activeTab: controlledTab,
-  onTabChange
+  onTabChange,
+  isVerified: controlledIsVerified
 }) => {
-  const { user } = useAuth();
+  const { user, isDoctorVerified: authIsDoctorVerified } = useAuth();
+  const isVerified = controlledIsVerified !== undefined ? controlledIsVerified : authIsDoctorVerified;
   const doctorDisplayName = user?.name ? (user.name.startsWith('Dr.') ? user.name : `Dr. ${user.name}`) : 'Dr. Practitioner';
   const doctorInitials = user?.name 
     ? user.name.replace(/^Dr\.\s*/i, '').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'DR'
@@ -168,10 +171,14 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
           <div>
             <div className="flex items-center gap-1.5 font-extrabold text-xs text-slate-900">
               <span>{doctorDisplayName}</span>
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+              {isVerified ? (
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+              ) : (
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+              )}
             </div>
-            <div className="text-[10px] text-teal-800 font-semibold">
-              General Medicine · Verified Practitioner
+            <div className={`text-[10px] font-semibold ${isVerified ? 'text-teal-800' : 'text-amber-700'}`}>
+              General Medicine · {isVerified ? 'Verified Practitioner' : 'Verification Pending'}
             </div>
           </div>
         </div>
@@ -188,6 +195,17 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
 
       {/* Screen Content based on activeTab */}
       <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 overflow-y-auto space-y-4 md:space-y-6 max-w-6xl w-full mx-auto">
+        {!isVerified && (
+          <div className="p-3.5 bg-amber-50/90 border border-amber-200/80 rounded-2xl text-amber-900 text-xs flex items-start gap-3 shadow-2xs">
+            <Clock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-bold text-amber-950">Doctor Verification Pending</div>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Your medical registration number is undergoing credential verification. Clinical access to patient records is restricted until verification is confirmed by the healthcare network.
+              </p>
+            </div>
+          </div>
+        )}
         {/* VIEW 1: DOCTOR DASHBOARD */}
         {activeTab === 'home' && !selectedPatient && !showCreatePrescription && (
           <div className="space-y-4">

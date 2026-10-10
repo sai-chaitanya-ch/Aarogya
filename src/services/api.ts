@@ -210,8 +210,14 @@ export async function sendChatToBackend(
       body: JSON.stringify({ query, language }),
       signal: AbortSignal.timeout(60000),
     });
-  } catch {
-    throw new Error('Aarogya AI is temporarily unreachable. Please try again in a moment.');
+  } catch (err: any) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      throw new Error('Aarogya AI response timed out. The server may be waking up — please try again in a moment.');
+    }
+    if (err?.message && !err.message.includes('fetch')) {
+      throw err;
+    }
+    throw new Error('Aarogya AI backend is temporarily unreachable. Please ensure the backend is running and reachable.');
   }
   if (!response.ok) throw await responseError(response);
   const data = await response.json();

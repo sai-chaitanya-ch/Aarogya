@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  ArrowLeft, Mic, MicOff, Send, Sparkles, Volume2, 
-  FileText, AlertCircle, RefreshCw, Globe, ChevronRight 
+  ArrowLeft, Mic, Send, Sparkles, Volume2, 
+  FileText, AlertCircle, Paperclip, X, CheckCircle2, Loader2, ChevronRight 
 } from 'lucide-react';
 import { MedicalRecord, Language, ChatMessage } from '../../types';
-import { sendChatToBackend } from '../../services/api';
+import { sendChatToBackend, processDocumentWithBackend } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { useHealthData } from '../../context/HealthDataContext';
 
 interface AskAarogyaChatProps {
   language: Language;
@@ -15,6 +17,15 @@ interface AskAarogyaChatProps {
   onViewRecord?: (recordId: string) => void;
 }
 
+interface AttachedDocState {
+  file: File;
+  name: string;
+  sizeFormatted: string;
+  status: 'processing' | 'indexed' | 'error';
+  errorMessage?: string;
+  recordId?: string;
+}
+
 export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
   language,
   onLanguageChange,
@@ -23,6 +34,9 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
   onBack,
   onViewRecord
 }) => {
+  const { user } = useAuth();
+  const { addRecord } = useHealthData();
+
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     const greetingText = records.length > 0
       ? (language === 'te' ? `నమస్కారం! నేను మీ ఆరోగ్య అసిస్టెంట్‌ని. మీ వద్ద ${records.length} రికార్డులు ఉన్నాయి. మీరు వాటి గురించి నన్ను అడగవచ్చు.` :
@@ -31,7 +45,7 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
          `Hello! I am your Aarogya health copilot. You have ${records.length} authorized health record(s). How can I help you understand your health today?`)
       : (language === 'te' ? "నమస్కారం! నేను మీ ఆరోగ్య అసిస్టెంట్‌ని. మీ వద్ద ఇంకా ఎటువంటి రికార్డులు లేవు. పత్రాన్ని స్కాన్ చేసి వివరాలు తెలుసుకోవచ్చు." :
          language === 'hi' ? "नमस्ते! मैं आपका आरोग्य सहायक हूँ। आपके पास अभी कोई रिपोर्ट नहीं है। आप पर्चा अपलोड कर सकते हैं या कोई प्रश्न पूछ सकते हैं।" :
-         language === 'ta' ? "வணக்கம்! உங்கள் கணக்கில் இன்னும் மருத்துவ பதிவுகள் இல்லை. ஒரு அறிக்கையை பதிவேற்றவும்." :
+         language === 'ta' ? "வணக்கம்! உங்கள் கணக்கில் இன்னும் மருத்துவ பதிவுகள் இல்லை. ஒரு அறிக்கையை பதிవేற்றவும்." :
          "Hello! I am your Aarogya health copilot. You have no uploaded medical records yet. Scan a prescription or lab report to get personalized explanations.");
 
     return [
@@ -48,10 +62,25 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
   const [inputText, setInputText] = useState(initialPrompt || '');
   const [isListening, setIsListening] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [attachment, setAttachment] = useState<AttachedDocState | null>(null);
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    // Consider scrolled up if more than 140px away from bottom
+    const isUp = scrollHeight - scrollTop - clientHeight > 140;
+    setUserScrolledUp(isUp);
+  };
+
+  const scrollToBottom = (smooth = true) => {
+    if (!userScrolledUp) {
+      messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+    }
   };
 
   useEffect(() => {
@@ -64,9 +93,81 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     }
   }, []);
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const allowedMimes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedMimes.includes(file.type)) {
+      alert('Supported formats: PDF, JPEG, PNG, and WebP (up to 20 MB).');
+      return;
+    }
+
+    if (file.size > 20 * 1024 * 1024) {
+      alert('File exceeds the 20 MB upload limit. Please select a smaller document.');
+      return;
+    }
+
+    const sizeFormatted = file.size < 1024 * 1024
+      ? `${Math.round(file.size / 1024)} KB`
+      : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+
+    setAttachment({
+      file,
+      name: file.name,
+      sizeFormatted,
+      status: 'processing'
+    });
+
+    try {
+      // 1. Send to existing authenticated backend processing endpoint
+      const { record } = await processDocumentWithBackend(file, 'custom', user.name || 'Patient');
+      // 2. Persist to storage, save to database, and trigger pgvector indexing
+      await addRecord(record, file);
+
+      setAttachment(prev => prev ? {
+        ...prev,
+        status: 'indexed',
+        recordId: record.id
+      } : null);
+
+      const confirmText = language === 'te' 
+        ? `మీ పత్రం "${file.name}" విజయవంతంగా ప్రాసెస్ చేయబడింది మరియు మీ ఆరోగ్య రికార్డులలో భద్రపరచబడింది. మీరు ఇప్పుడు దీని గురించి ప్రశ్నలు అడగవచ్చు!`
+        : language === 'hi'
+        ? `आपका दस्तावेज़ "${file.name}" सफलतापूर्वक प्रोसेस और इंडेक्स हो गया है। अब आप इसके बारे में पूछ सकते हैं!`
+        : language === 'ta'
+        ? `உங்கள் ஆவணம் "${file.name}" வெற்றிகரமாக செயலாக்கப்பட்டு குறியிடப்பட்டது. நீங்கள் இப்போது அதைப் பற்றி கேட்கலாம்!`
+        : `I've analyzed and indexed "${file.name}" into your health records. You can now ask questions about it!`;
+
+      setMessages(prev => [...prev, {
+        id: `ai_${Date.now()}`,
+        sender: 'aarogya',
+        text: confirmText,
+        timestamp: 'Just now',
+        citations: [{
+          documentTitle: record.title || file.name,
+          documentDate: record.visitDate || 'Recent',
+          recordId: record.id
+        }]
+      }]);
+    } catch (err: any) {
+      setAttachment(prev => prev ? {
+        ...prev,
+        status: 'error',
+        errorMessage: err?.message || 'Document processing failed. Please retry.'
+      } : null);
+    }
+  };
+
   const handleSendMessage = (textToSend?: string) => {
     const query = (textToSend || inputText).trim();
     if (!query) return;
+
+    if (attachment?.status === 'processing') {
+      alert('Your document is currently being analyzed and indexed. Please wait a moment before sending.');
+      return;
+    }
 
     const userMsg: ChatMessage = {
       id: `usr_${Date.now()}`,
@@ -78,6 +179,7 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
     setIsTyping(true);
+    setUserScrolledUp(false);
 
     sendChatToBackend(query, language, records)
       .then(result => {
@@ -93,16 +195,11 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
         setIsTyping(false);
       })
       .catch((err: any) => {
-        const unavailableMsg: Record<Language, string> = {
-          en: err?.message || 'Aarogya AI is temporarily unavailable. Please try again in a moment.',
-          te: 'ఆరోగ్య AI తాత్కాలికంగా అందుబాటులో లేదు. దయచేసి కొద్దిసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
-          hi: 'आरोग्य AI अस्थायी रूप से अनुपलब्ध है। कृपया कुछ समय बाद पुनः प्रयास करें।',
-          ta: 'ஆரோக்யா AI தற்காலிகமாக கிடைக்கவில்லை. சிறிது நேரம் கழித்து மீண்டும் முயற்சிக்கவும்.'
-        };
+        const errMsg = err?.message || 'Aarogya AI is temporarily unavailable. Please try again in a moment.';
         const botMsg: ChatMessage = {
           id: `ai_${Date.now()}`,
           sender: 'aarogya',
-          text: unavailableMsg[language] || unavailableMsg.en,
+          text: errMsg,
           timestamp: 'Just now',
           citations: [],
           isEmergencyAlert: false
@@ -175,9 +272,9 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
       ];
 
   return (
-    <div className="flex-1 flex flex-col justify-between bg-[#f8faf9] h-full min-h-[500px] w-full">
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col h-full w-full bg-[#f8faf9] overflow-hidden">
       {/* Header */}
-      <div className="p-3.5 sm:p-4 bg-white border-b border-slate-100 flex items-center justify-between shadow-xs">
+      <div className="flex-shrink-0 p-3.5 sm:p-4 bg-white border-b border-slate-100 flex items-center justify-between shadow-xs z-10">
         <div className="flex items-center gap-2.5">
           <button
             onClick={onBack}
@@ -213,8 +310,12 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
         </div>
       </div>
 
-      {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 md:p-6 space-y-4 text-xs">
+      {/* Messages Scroll Area - ONLY this region scrolls vertically */}
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-5 md:p-6 space-y-4 text-xs"
+      >
         {messages.map(msg => (
           <div
             key={msg.id}
@@ -306,79 +407,158 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Suggested Quick Questions */}
-      <div className="px-3.5 sm:px-5 py-2 overflow-x-auto flex gap-2 scrollbar-none bg-white/70 border-t border-slate-100">
-        {suggestionChips.map((chip, idx) => (
-          <button
-            key={idx}
-            onClick={() => handleSendMessage(chip.query)}
-            className="flex-shrink-0 px-3 py-1.5 rounded-full bg-white hover:bg-teal-50 border border-slate-200 text-xs font-semibold text-slate-700 hover:text-teal-900 transition-colors shadow-2xs"
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Voice Recording Waveform Modal / Bar */}
-      {isListening && (
-        <div className="px-4 py-2.5 bg-rose-50 border-t border-rose-200 flex items-center justify-between animate-pulse">
-          <div className="flex items-center gap-2 text-rose-800 text-xs font-bold">
-            <Mic className="w-4 h-4 text-rose-600 animate-bounce" />
-            <span>Listening in {language.toUpperCase()}... Speak your question</span>
-          </div>
-          <button
-            onClick={toggleSpeechRecognition}
-            className="text-xs font-bold text-rose-700 underline"
-          >
-            Cancel
-          </button>
+      {/* Stationary Bottom Area (Quick chips, Attachment banner, Composer) */}
+      <div className="flex-shrink-0 bg-white border-t border-slate-100 shadow-md z-10">
+        {/* Suggested Quick Questions */}
+        <div className="px-3.5 sm:px-5 py-2 overflow-x-auto flex gap-2 scrollbar-none bg-slate-50/70 border-b border-slate-100">
+          {suggestionChips.map((chip, idx) => (
+            <button
+              key={idx}
+              onClick={() => handleSendMessage(chip.query)}
+              className="flex-shrink-0 px-3 py-1.5 rounded-full bg-white hover:bg-teal-50 border border-slate-200 text-xs font-semibold text-slate-700 hover:text-teal-900 transition-colors shadow-2xs"
+            >
+              {chip.label}
+            </button>
+          ))}
         </div>
-      )}
 
-      {/* Input Form Bar */}
-      <div className="p-3 sm:p-4 bg-white border-t border-slate-100 shadow-md">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSendMessage();
-          }}
-          className="flex items-center gap-2 max-w-4xl mx-auto"
-        >
-          <button
-            type="button"
-            onClick={toggleSpeechRecognition}
-            className={`p-2.5 sm:p-3 rounded-2xl transition-all ${
-              isListening ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-100 text-slate-700 hover:bg-teal-50 hover:text-teal-800'
-            }`}
-            title="Speak question"
+        {/* Voice Recording Waveform Modal / Bar */}
+        {isListening && (
+          <div className="px-4 py-2.5 bg-rose-50 border-t border-rose-200 flex items-center justify-between animate-pulse">
+            <div className="flex items-center gap-2 text-rose-800 text-xs font-bold">
+              <Mic className="w-4 h-4 text-rose-600 animate-bounce" />
+              <span>Listening in {language.toUpperCase()}... Speak your question</span>
+            </div>
+            <button
+              onClick={toggleSpeechRecognition}
+              className="text-xs font-bold text-rose-700 underline"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Attached Document Card/Chip */}
+        {attachment && (
+          <div className="px-3.5 sm:px-5 pt-2.5 pb-1 bg-teal-50/40 border-b border-teal-100">
+            <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-teal-200 shadow-2xs max-w-4xl mx-auto">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-800 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-slate-800 truncate" title={attachment.name}>
+                    {attachment.name}
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+                    <span>{attachment.sizeFormatted}</span>
+                    <span>·</span>
+                    {attachment.status === 'processing' && (
+                      <span className="flex items-center gap-1 text-teal-700 font-semibold animate-pulse">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Analyzing & indexing...
+                      </span>
+                    )}
+                    {attachment.status === 'indexed' && (
+                      <span className="flex items-center gap-1 text-emerald-700 font-bold">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Indexed for AI search
+                      </span>
+                    )}
+                    {attachment.status === 'error' && (
+                      <span className="flex items-center gap-1 text-rose-600 font-semibold truncate" title={attachment.errorMessage}>
+                        <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                        {attachment.errorMessage || 'Indexing failed'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAttachment(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                title="Remove attachment"
+                aria-label="Remove attachment"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Input Form Bar */}
+        <div className="p-3 sm:p-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendMessage();
+            }}
+            className="flex items-center gap-1.5 sm:gap-2 max-w-4xl mx-auto"
           >
-            <Mic className="w-4 h-4" />
-          </button>
+            {/* Hidden File Input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+              onChange={handleFileSelect}
+              className="hidden"
+              aria-hidden="true"
+            />
 
-          <input
-            type="text"
-            value={inputText}
-            onChange={e => setInputText(e.target.value)}
-            placeholder={
-              language === 'te' ? "మీ రికార్డుల గురించి అడగండి..." :
-              language === 'hi' ? "अपने रिकॉर्ड्स के बारे में पूछें..." :
-              language === 'ta' ? "மருத்துவ பதிவுகள் பற்றி கேளுங்கள்..." :
-              "Ask about your reports, medicines, or tests..."
-            }
-            className="flex-1 text-xs sm:text-sm px-4 py-2.5 sm:py-3 rounded-2xl bg-slate-50 border border-slate-200 focus:border-teal-700 focus:bg-white focus:ring-1 focus:ring-teal-700 outline-none transition-all shadow-2xs"
-          />
+            {/* Document Attachment Button */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2.5 sm:p-3 rounded-2xl bg-slate-100 text-slate-700 hover:bg-teal-50 hover:text-teal-800 transition-all flex-shrink-0"
+              title="Attach medical document"
+              aria-label="Attach medical document"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
 
-          <button
-            type="submit"
-            disabled={!inputText.trim()}
-            className="p-2.5 sm:p-3 rounded-2xl bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-40 disabled:hover:bg-teal-700 transition-colors shadow-xs"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </form>
+            <input
+              type="text"
+              value={inputText}
+              onChange={e => setInputText(e.target.value)}
+              placeholder={
+                language === 'te' ? "మీ రికార్డుల గురించి అడగండి..." :
+                language === 'hi' ? "अपने रिकॉर्ड्स के बारे में पूछें..." :
+                language === 'ta' ? "மருத்துவ பதிவுகள் பற்றி கேளுங்கள்..." :
+                "Ask about your reports, medicines, or tests..."
+              }
+              className="flex-1 min-w-0 text-xs sm:text-sm px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl bg-slate-50 border border-slate-200 focus:border-teal-700 focus:bg-white focus:ring-1 focus:ring-teal-700 outline-none transition-all shadow-2xs"
+            />
 
-        <div className="mt-1.5 text-center text-[10px] sm:text-[11px] text-slate-400">
-          Health information is educational and does not replace your clinician. Always verify with your doctor.
+            {/* Microphone button */}
+            <button
+              type="button"
+              onClick={toggleSpeechRecognition}
+              className={`p-2.5 sm:p-3 rounded-2xl transition-all flex-shrink-0 ${
+                isListening ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-100 text-slate-700 hover:bg-teal-50 hover:text-teal-800'
+              }`}
+              title="Speak question"
+              aria-label="Speak question"
+            >
+              <Mic className="w-4 h-4" />
+            </button>
+
+            {/* Send button */}
+            <button
+              type="submit"
+              disabled={!inputText.trim() || attachment?.status === 'processing'}
+              className="p-2.5 sm:p-3 rounded-2xl bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-40 disabled:hover:bg-teal-700 transition-colors shadow-xs flex-shrink-0"
+              title="Send message"
+              aria-label="Send message"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </form>
+
+          <div className="mt-1.5 text-center text-[10px] sm:text-[11px] text-slate-400">
+            Health information is educational and does not replace your clinician. Always verify with your doctor.
+          </div>
         </div>
       </div>
     </div>
