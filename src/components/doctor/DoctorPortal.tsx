@@ -99,6 +99,10 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
 
   const handlePublishPrescription = () => {
     if (!selectedPatient) return;
+    if (!isVerified && !isDemoSession) {
+      alert('Prescription publishing requires verified doctor credentials. Your account verification is currently pending confirmation.');
+      return;
+    }
     
     // Create new medical record to sync to patient
     const publishedRecord: MedicalRecord = {
@@ -684,7 +688,13 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
               </button>
               <button
                 onClick={handlePublishPrescription}
-                className="flex-1 py-3 bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-2xl transition-colors shadow-md shadow-teal-700/20"
+                disabled={!isVerified && !isDemoSession}
+                className={`flex-1 py-3 font-bold rounded-2xl transition-colors shadow-md ${
+                  !isVerified && !isDemoSession
+                    ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                    : 'bg-teal-700 hover:bg-teal-800 text-white shadow-teal-700/20'
+                }`}
+                title={!isVerified && !isDemoSession ? 'Requires verified doctor credentials' : undefined}
               >
                 Publish Prescription
               </button>

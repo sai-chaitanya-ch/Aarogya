@@ -247,7 +247,13 @@ async def process_document(
 
 
 @app.post("/api/documents/signed-url")
-def get_signed_url(payload: SignedUrlRequest, user_id: str = Depends(get_current_user_id)):
+def get_signed_url(payload: SignedUrlRequest, user: UserSession = Depends(get_current_user)):
+    if user.is_anonymous:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo sessions are not permitted to generate signed storage URLs.",
+        )
+    user_id = user.id
     path = payload.storage_path.strip().lstrip("/")
     # Browser uploads use {auth.uid()}/{filename}; don't accept any other user's folder.
     if not path.startswith(f"{user_id}/") or ".." in path.split("/"):

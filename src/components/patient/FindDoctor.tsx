@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { 
   ArrowLeft, Search, MapPin, Star, ShieldCheck, 
-  Clock, Video, Phone, Calendar, ChevronRight 
+  Video, Calendar, AlertCircle 
 } from 'lucide-react';
-import { Doctor, Language, Appointment } from '../../types';
+import { Doctor, Language } from '../../types';
 import { nearbyDoctors } from '../../data/mockData';
+import { useAuth } from '../../context/AuthContext';
 
 interface FindDoctorProps {
   language: Language;
@@ -13,10 +14,11 @@ interface FindDoctorProps {
 }
 
 export const FindDoctor: React.FC<FindDoctorProps> = ({
-  language,
+  language: _language,
   onBack,
   onBookDoctor
 }) => {
+  const { isDemoSession } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSpecialty, setSelectedSpecialty] = useState('All');
 
@@ -47,9 +49,22 @@ export const FindDoctor: React.FC<FindDoctorProps> = ({
           </div>
           <div className="flex items-center gap-1 text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200/50">
             <MapPin className="w-3 h-3 text-teal-700" />
-            <span>Vijayawada</span>
+            <span>Vijayawada (Demo)</span>
           </div>
         </div>
+
+        {/* Demo Mode Notice */}
+        {isDemoSession && (
+          <div className="mt-3 p-3 bg-amber-50/90 border border-amber-200/80 rounded-xl text-amber-900 text-xs flex items-start gap-2.5 shadow-2xs">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-amber-950">Demo Mode: Synthetic Doctor Directory</div>
+              <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                Displaying synthetic demo fixtures. Fictional clinic listings are for exploration only and do not access private healthcare databases.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Search */}
         <div className="relative mt-3">
@@ -104,11 +119,16 @@ export const FindDoctor: React.FC<FindDoctorProps> = ({
                   />
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <h3 className="font-bold text-xs text-slate-900">{doc.name}</h3>
-                        <span title="Verified Practitioner">
-                          <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                        <span title={isDemoSession || doc.name.includes('Demo') ? "Synthetic Demo Profile" : "Verified Practitioner"}>
+                          <ShieldCheck className={`w-3.5 h-3.5 ${isDemoSession || doc.name.includes('Demo') ? 'text-amber-600' : 'text-blue-600'}`} />
                         </span>
+                        {(isDemoSession || doc.name.includes('Demo')) && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                            Synthetic Demo
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-0.5 text-amber-500 font-bold text-[11px]">
                         <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
