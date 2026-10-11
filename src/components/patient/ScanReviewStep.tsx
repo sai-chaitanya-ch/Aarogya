@@ -123,6 +123,11 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   };
 
   const handleApplyDemoTemplate = () => {
+    if (!isDemoSession) {
+      console.warn('Blocked attempt to apply synthetic demo template to a non-demo session.');
+      return;
+    }
+
     const isLab = selectedDocType === 'Lab Report';
     const isDischarge = selectedDocType === 'Discharge Summary';
 
@@ -307,7 +312,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           <div className="mt-2.5 p-3 bg-amber-50/90 border border-amber-300 rounded-xl text-amber-950 text-xs flex items-start gap-2.5 shadow-2xs">
             <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
             <div className="text-[11px] leading-relaxed">
-              <span className="font-bold text-amber-900">Demo Privacy Notice:</span> Uploaded files are transmitted ephemerally to the Aarogya AI backend solely for text extraction and are <span className="font-semibold underline">never</span> saved to permanent database tables or Supabase Storage. Saved demo records remain strictly in your local browser session storage. Please test using synthetic or de-identified test documents only.
+              <span className="font-bold text-amber-900">Demo Privacy Notice:</span> Uploaded files are transmitted ephemerally to the Aarogya backend and processed by the configured AI provider solely for OCR and text extraction. Files and records are <span className="font-semibold underline">never</span> saved to persistent database tables or Supabase Storage. Demo records exist only in your current browser session. Please test using synthetic or de-identified test documents only.
             </div>
           </div>
         )}
@@ -376,7 +381,9 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
                   <div className="font-bold text-amber-900">Extraction Notice: Automatic OCR Unavailable</div>
                   <div className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">{processingError}</div>
                   <div className="text-[10px] text-amber-700 font-medium mt-1">
-                    Your local file preview is preserved. You can enter details manually below or apply a demo template to test saving.
+                    {isDemoSession
+                      ? 'Your local file preview is preserved. You can enter details manually below or apply a demo template to test saving.'
+                      : 'Your local file preview is preserved. You can enter details manually below or retry extraction.'}
                   </div>
                 </div>
               </div>
@@ -394,14 +401,16 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
 
             {/* Quick action buttons for graceful fallback */}
             <div className="pt-2 border-t border-amber-200/80 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={handleApplyDemoTemplate}
-                className="px-3 py-1.5 bg-white hover:bg-amber-100/60 border border-amber-300 text-amber-900 font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-                <span>Fill with Demo Template (Synthetic)</span>
-              </button>
+              {isDemoSession && (
+                <button
+                  type="button"
+                  onClick={handleApplyDemoTemplate}
+                  className="px-3 py-1.5 bg-white hover:bg-amber-100/60 border border-amber-300 text-amber-900 font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Fill with Demo Template (Synthetic)</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

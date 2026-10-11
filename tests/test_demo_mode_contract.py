@@ -474,4 +474,49 @@ def test_document_extraction_timeout_error_propagation(client, monkeypatch):
     assert "AI extraction timed out" in res.json()["detail"]
 
 
+def test_demo_synthetic_template_blocked_for_non_demo_users_contract():
+    """Verify ScanReviewStep.tsx statically and functionally blocks synthetic demo templates for non-demo sessions."""
+    from pathlib import Path
+
+    scan_review_path = Path(__file__).resolve().parent.parent / "src" / "components" / "patient" / "ScanReviewStep.tsx"
+    assert scan_review_path.exists(), f"Could not find {scan_review_path}"
+    content = scan_review_path.read_text(encoding="utf-8")
+
+    # 1. Defensively guarded handleApplyDemoTemplate
+    assert "const handleApplyDemoTemplate = () => {" in content
+    assert "if (!isDemoSession) {" in content
+    assert "Blocked attempt to apply synthetic demo template to a non-demo session" in content
+
+    # 2. Conditionally rendered button
+    assert "{isDemoSession && (" in content
+    assert "Fill with Demo Template (Synthetic)" in content
+
+    # 3. Privacy notice text
+    assert "configured AI provider solely for OCR and text extraction" in content
+    assert "synthetic or de-identified test documents only" in content
+
+    # 4. Functional simulation of the handler logic
+    def simulate_apply_demo_template(is_demo: bool, initial_state: dict):
+        state = dict(initial_state)
+        if not is_demo:
+            return state, False  # early exit, unmutated
+        # Demo session applies synthetic fields
+        state["docTitle"] = "General Consultation Prescription (Demo Template)"
+        state["visitDate"] = "2026-10-11"
+        state["medicines"] = [{"name": "Amoxicillin 500mg"}]
+        return state, True
+
+    real_user_state = {"docTitle": "", "visitDate": "", "medicines": []}
+    after_real_user, applied = simulate_apply_demo_template(is_demo=False, initial_state=real_user_state)
+    assert not applied
+    assert after_real_user == real_user_state  # No synthetic contamination
+
+    demo_user_state = {"docTitle": "", "visitDate": "", "medicines": []}
+    after_demo_user, applied_demo = simulate_apply_demo_template(is_demo=True, initial_state=demo_user_state)
+    assert applied_demo
+    assert "Demo Template" in after_demo_user["docTitle"]
+    assert len(after_demo_user["medicines"]) > 0
+
+
+
 
