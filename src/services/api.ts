@@ -94,11 +94,11 @@ export async function processDocumentWithBackend(
       method: 'POST',
       headers,
       body: form,
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(75000),
     });
   } catch (err: any) {
     if (err?.name === 'TimeoutError' || err?.message?.includes('timeout') || err?.message?.includes('aborted')) {
-      throw new Error('Document processing timed out after 60 seconds. The backend may be warming up or processing a large file. Please retry.');
+      throw new Error('Document processing timed out after 75 seconds. The backend may be warming up or processing a large file. Please retry or enter details manually.');
     }
     throw new Error('Aarogya document processing is unreachable. Check the backend deployment and try again.');
   }

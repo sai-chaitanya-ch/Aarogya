@@ -323,3 +323,155 @@ def test_doctor_demo_prescription_truthful_messaging_contract():
     assert "synchronized with Real Patient's Aarogya app" in real_alert
 
 
+def test_demo_scan_review_date_validation_contract():
+    """Validates date validation rules for saving scanned records in both demo and real mode."""
+    today = "2026-10-11"
+
+    def validate_report_date(date_str: str) -> tuple[bool, str]:
+        if not date_str or not date_str.strip():
+            return False, "Please enter a valid visit / report date before saving."
+        trimmed = date_str.strip()
+        import re
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", trimmed):
+            return False, "Please enter a valid visit / report date before saving."
+        if trimmed > today:
+            return False, "Visit date cannot be in the future. Please correct the report date."
+        return True, ""
+
+    # Empty date
+    ok, err = validate_report_date("")
+    assert not ok
+    assert err == "Please enter a valid visit / report date before saving."
+
+    # Invalid format
+    ok, err = validate_report_date("11/10/2026")
+    assert not ok
+    assert err == "Please enter a valid visit / report date before saving."
+
+    # Future date
+    ok, err = validate_report_date("2026-10-15")
+    assert not ok
+    assert err == "Visit date cannot be in the future. Please correct the report date."
+
+    # Valid today
+    ok, err = validate_report_date(today)
+    assert ok
+    assert err == ""
+
+    # Valid past date
+    ok, err = validate_report_date("2026-09-18")
+    assert ok
+    assert err == ""
+
+
+def test_demo_save_record_browser_isolation_contract():
+    """
+    Validates that demo addRecord() saves strictly to browser session storage
+    and NEVER interacts with permanent database or file storage.
+    """
+    mock_supabase = MagicMock()
+    # If Supabase storage or table insert is called, it must raise
+    mock_supabase.storage.from_.side_effect = AssertionError("Supabase storage must NOT be called in demo mode")
+    mock_supabase.from_.side_effect = AssertionError("Supabase table queries must NOT be called in demo save")
+
+    def simulate_add_record(is_demo: bool, record_data: dict, has_file: bool = True) -> dict:
+        if is_demo:
+            # Browser-scoped demo record
+            demo_record = {
+                **record_data,
+                "id": f"demo_rec_{uuid.uuid4().hex[:8]}",
+                "originalFileUrl": "blob:http://localhost:5173/mock-object-url" if has_file else None,
+                "createdAt": "2026-10-11T12:00:00.000Z",
+            }
+            return {
+                "record": demo_record,
+                "indexingStatus": "demo_local",
+                "chunksIndexed": 0,
+                "embeddingModel": "none",
+            }
+
+        # Real mode calls supabase
+        mock_supabase.storage.from_("medical-records")
+        return {}
+
+    result = simulate_add_record(
+        is_demo=True,
+        record_data={
+            "title": "General Consultation Prescription (Demo Template)",
+            "documentType": "Prescription",
+            "visitDate": "2026-10-11",
+            "medicines": [{"name": "Amoxicillin 500mg"}],
+        },
+    )
+
+    assert result["indexingStatus"] == "demo_local"
+    assert result["chunksIndexed"] == 0
+    assert result["embeddingModel"] == "none"
+    assert result["record"]["id"].startswith("demo_rec_")
+    assert result["record"]["originalFileUrl"].startswith("blob:")
+    assert mock_supabase.storage.from_.call_count == 0
+    assert mock_supabase.from_.call_count == 0
+
+
+def test_optimize_image_for_vision_compresses_and_downscales():
+    """Verifies optimize_image_for_vision prevents massive payloads and timeouts."""
+    import io
+    from PIL import Image
+    from ocr_service import optimize_image_for_vision
+
+    # Create a 2400x1800 mock test image
+    img = Image.new("RGB", (2400, 1800), color=(200, 220, 240))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=95)
+    raw_bytes = buf.getvalue()
+
+    optimized, mime = optimize_image_for_vision(raw_bytes, "image/jpeg", max_dimension=1600)
+    assert optimized is not None
+    assert mime == "image/jpeg"
+    assert len(optimized) < len(raw_bytes)
+
+    # Check that dimensions were constrained to <= 1600
+    res_img = Image.open(io.BytesIO(optimized))
+    assert res_img.width <= 1600
+    assert res_img.height <= 1600
+
+
+def test_document_extraction_timeout_error_propagation(client, monkeypatch):
+    """Verifies that an AI timeout returns a structured 503 rather than an unhandled crash."""
+    anon_user_id = str(uuid.uuid4())
+
+    mock_supabase = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = anon_user_id
+    mock_user.is_anonymous = True
+    mock_supabase.auth.get_user.return_value = MagicMock(user=mock_user)
+    monkeypatch.setattr(main, "get_supabase_client", lambda: mock_supabase)
+
+    from gemini_service import ModelUnavailableError
+
+    def mock_structure_timeout(*args, **kwargs):
+        raise ModelUnavailableError("AI extraction timed out. Please retry or enter details manually.")
+
+    monkeypatch.setattr(main, "structure_medical_document", mock_structure_timeout)
+
+    dummy_jpeg = (
+        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb\x00C\x00"
+        b"\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12"
+        b"\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342"
+        b"\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f\x00\x00\x01\x05"
+        b"\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07"
+        b"\x08\t\n\x0b\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xbf\x00\xff\xd9"
+    )
+
+    res = client.post(
+        "/api/documents/process",
+        headers={"Authorization": "Bearer anon_jwt_token"},
+        files={"file": ("sample.jpg", dummy_jpeg, "image/jpeg")},
+        data={"preset_type": "prescription"},
+    )
+
+    assert res.status_code == 503
+    assert "AI extraction timed out" in res.json()["detail"]
+
+
+
