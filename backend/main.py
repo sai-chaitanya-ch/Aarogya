@@ -13,7 +13,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from gemini_service import ModelUnavailableError, ask_aarogya_chat, is_emergency_query, structure_medical_document
-from ocr_service import extract_text_from_document
+from ocr_service import extract_text_from_document, optimize_image_for_vision
 from rag_service import RagUnavailableError, format_context_and_citations, index_medical_document, reindex_user_documents, retrieve_relevant_chunks
 from storage_service import StorageUnavailableError, generate_signed_url, get_supabase_client
 
@@ -216,8 +216,13 @@ async def process_document(
         raise HTTPException(status_code=400, detail="The uploaded file does not appear to be a supported image.")
 
     raw_text = extract_text_from_document(data, mime_type)
+    optimized_bytes, effective_mime = optimize_image_for_vision(data, mime_type)
+    # If raw_text is already substantial from a clean selectable-text document, use text-only to save latency
+    vision_bytes = optimized_bytes if len(raw_text.strip()) < 120 else None
+    vision_mime = effective_mime if vision_bytes else "image/jpeg"
+
     try:
-        result = structure_medical_document(raw_ocr_text=raw_text, image_bytes=data, mime_type=mime_type)
+        result = structure_medical_document(raw_ocr_text=raw_text, image_bytes=vision_bytes, mime_type=vision_mime)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ModelUnavailableError as exc:

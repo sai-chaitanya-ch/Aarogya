@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Crop, RotateCw, Sparkles, Edit2, AlertTriangle, 
   ArrowLeft, Upload, Plus, Trash2, SlidersHorizontal, Camera, AlertCircle, FileText
 } from 'lucide-react';
 import { MedicalRecord, Language, ExtractedMedicine, ExtractedLabValue, DocumentType } from '../../types';
 import { translations } from '../../data/translations';
-import { processDocumentWithBackend } from '../../services/api';
+import { processDocumentWithBackend, checkBackendHealth } from '../../services/api';
 import { LiveCameraScanner } from './LiveCameraScanner';
 import { useAuth } from '../../context/AuthContext';
 
@@ -41,8 +41,15 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   const [processedRecord, setProcessedRecord] = useState<MedicalRecord | null>(null);
   const [processingError, setProcessingError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [dateValidationError, setDateValidationError] = useState<string | null>(null);
+  const [appliedTemplateNotice, setAppliedTemplateNotice] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Pre-warm backend API on mount to reduce cold-start timeout risk
+  useEffect(() => {
+    checkBackendHealth().catch(() => {});
+  }, []);
 
   // Document category
   const [selectedDocType, setSelectedDocType] = useState<DocumentType>('Prescription');
@@ -72,6 +79,17 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
     setIsProcessing(true);
     setProcessingError(null);
     setSaveError(null);
+    setDateValidationError(null);
+    setAppliedTemplateNotice(null);
+
+    // Capture currently entered manual values so we don't wipe them if extraction fails
+    const currentDocTitle = docTitle;
+    const currentPatientName = patientName;
+    const currentVisitDate = visitDate;
+    const currentDoctorName = doctorName;
+    const currentFacilityName = facilityName;
+    const currentMedicines = medicines;
+    const currentLabValues = labValues;
 
     try {
       const preset = selectedDocType === 'Lab Report' ? 'cbc' : selectedDocType === 'Discharge Summary' ? 'discharge' : 'prescription';
@@ -84,19 +102,115 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
       setProcessedRecord(candidate);
 
       // Populate candidate field values
-      setDocTitle(candidate.title || `${candidate.documentType}${candidate.facilityName ? ` — ${candidate.facilityName}` : ''}`);
+      setDocTitle(candidate.title || currentDocTitle || `${candidate.documentType}${candidate.facilityName ? ` — ${candidate.facilityName}` : ''}`);
       setSelectedDocType(candidate.documentType || selectedDocType);
-      setPatientName(candidate.patientName || '');
-      setVisitDate(candidate.visitDate || '');
-      setDoctorName(candidate.doctorName || '');
-      setFacilityName(candidate.facilityName || '');
-      setMedicines(candidate.medicines || []);
-      setLabValues(candidate.labValues || []);
+      setPatientName(candidate.patientName || currentPatientName || '');
+      setVisitDate(candidate.visitDate || currentVisitDate || '');
+      setDoctorName(candidate.doctorName || currentDoctorName || '');
+      setFacilityName(candidate.facilityName || currentFacilityName || '');
+      setMedicines(candidate.medicines?.length ? candidate.medicines : currentMedicines);
+      setLabValues(candidate.labValues?.length ? candidate.labValues : currentLabValues);
     } catch (err: any) {
       setProcessingError(err?.message || 'Failed to extract document information. Please verify your file or enter details manually.');
+      // Keep review fields fully editable and preserve user-entered values
+      setIsEditing(true);
+      if (!docTitle) {
+        setDocTitle(selectedDocType);
+      }
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleApplyDemoTemplate = () => {
+    if (!isDemoSession) {
+      console.warn('Blocked attempt to apply synthetic demo template to a non-demo session.');
+      return;
+    }
+
+    const isLab = selectedDocType === 'Lab Report';
+    const isDischarge = selectedDocType === 'Discharge Summary';
+
+    if (isLab) {
+      setDocTitle('Complete Blood Count (CBC) (Demo Template)');
+      setPatientName('Demo Patient A');
+      setVisitDate(TODAY_ISO);
+      setDoctorName('Dr. S. K. Gupta (Demo)');
+      setFacilityName('Demo Diagnostic Centre');
+      setLabValues([
+        {
+          id: `demo-lab-${Date.now()}-1`,
+          testName: 'Hemoglobin',
+          value: '11.0 g/dL',
+          numericValue: 11.0,
+          unit: 'g/dL',
+          referenceRange: '12.0 - 15.5',
+          status: 'low',
+          notes: 'Synthetic demo value'
+        },
+        {
+          id: `demo-lab-${Date.now()}-2`,
+          testName: 'Platelet Count',
+          value: '220,000 /uL',
+          numericValue: 220000,
+          unit: '/uL',
+          referenceRange: '150,000 - 450,000',
+          status: 'normal',
+          notes: ''
+        }
+      ]);
+      setMedicines([]);
+    } else if (isDischarge) {
+      setDocTitle('Inpatient Discharge Summary (Demo Template)');
+      setPatientName('Demo Patient A');
+      setVisitDate(TODAY_ISO);
+      setDoctorName('Dr. V. Prasad (Demo)');
+      setFacilityName('Demo City General Hospital');
+      setMedicines([
+        {
+          id: `demo-med-${Date.now()}-1`,
+          name: 'Pantoprazole 40mg',
+          dosage: '40mg',
+          frequency: 'Once daily before breakfast',
+          duration: '14 days',
+          timing: 'morning',
+          instructions: 'Take 30 mins before morning meal'
+        }
+      ]);
+      setLabValues([]);
+    } else {
+      setDocTitle('General Consultation Prescription (Demo Template)');
+      setPatientName('Demo Patient A');
+      setVisitDate(TODAY_ISO);
+      setDoctorName('Dr. A. Sharma (Demo)');
+      setFacilityName('Demo Community Health Clinic');
+      setMedicines([
+        {
+          id: `demo-med-${Date.now()}-1`,
+          name: 'Amoxicillin 500mg',
+          dosage: '500mg',
+          frequency: 'Three times daily',
+          duration: '5 days',
+          timing: 'morning',
+          instructions: 'Take after meals'
+        },
+        {
+          id: `demo-med-${Date.now()}-2`,
+          name: 'Paracetamol 650mg',
+          dosage: '650mg',
+          frequency: 'As needed for fever/body ache',
+          duration: '3 days',
+          timing: 'night',
+          instructions: 'Do not exceed 3 tablets daily'
+        }
+      ]);
+      setLabValues([]);
+    }
+
+    setAppliedTemplateNotice('Applied synthetic demo template for testing. Note: Values are simulated samples and were NOT extracted from your uploaded file.');
+    setDateValidationError(null);
+    setSaveError(null);
+    setIsEditing(true);
   };
 
   const handleSave = async () => {
@@ -112,17 +226,24 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
     }
 
     if (!visitDate || !/^\d{4}-\d{2}-\d{2}$/.test(visitDate.trim())) {
-      setSaveError('Please enter a valid visit / report date before saving.');
+      const err = 'Please enter a valid visit / report date before saving.';
+      setDateValidationError(err);
+      setSaveError(err);
+      setIsEditing(true);
       return;
     }
     const parsedDate = new Date(visitDate.trim());
     const today = new Date();
     today.setHours(23, 59, 59, 999);
     if (parsedDate > today) {
-      setSaveError('Visit date cannot be in the future. Please correct the report date.');
+      const err = 'Visit date cannot be in the future. Please correct the report date.';
+      setDateValidationError(err);
+      setSaveError(err);
+      setIsEditing(true);
       return;
     }
 
+    setDateValidationError(null);
     setSaveError(null);
     setIsSaving(true);
 
@@ -188,10 +309,10 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
 
         {/* Demo Mode Notice */}
         {isDemoSession && (
-          <div className="mt-2.5 p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl text-amber-900 text-xs flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div className="text-[11px] leading-tight">
-              <span className="font-bold">Demo Mode Notice:</span> Extracted records are stored only in your browser's temporary session and are never uploaded to database or permanent storage. Please only test with sample or de-identified test documents.
+          <div className="mt-2.5 p-3 bg-amber-50/90 border border-amber-300 rounded-xl text-amber-950 text-xs flex items-start gap-2.5 shadow-2xs">
+            <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+            <div className="text-[11px] leading-relaxed">
+              <span className="font-bold text-amber-900">Demo Privacy Notice:</span> Uploaded files are transmitted ephemerally to the Aarogya backend and processed by the configured AI provider solely for OCR and text extraction. Files and records are <span className="font-semibold underline">never</span> saved to persistent database tables or Supabase Storage. Demo records exist only in your current browser session. Please test using synthetic or de-identified test documents only.
             </div>
           </div>
         )}
@@ -250,26 +371,79 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
           </div>
         </div>
 
-        {/* Processing Error Banner */}
+        {/* Processing Error / Fallback Banner */}
         {processingError && (
-          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs flex items-start justify-between gap-3 shadow-2xs">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <div className="font-bold">Extraction notice</div>
-                <div className="text-[11px] text-amber-800 mt-0.5">{processingError}</div>
+          <div className="mt-3 p-3.5 bg-amber-50/95 border border-amber-300 text-amber-950 rounded-2xl text-xs space-y-2.5 shadow-xs">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-amber-900">Extraction Notice: Automatic OCR Unavailable</div>
+                  <div className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">{processingError}</div>
+                  <div className="text-[10px] text-amber-700 font-medium mt-1">
+                    {isDemoSession
+                      ? 'Your local file preview is preserved. You can enter details manually below or apply a demo template to test saving.'
+                      : 'Your local file preview is preserved. You can enter details manually below or retry extraction.'}
+                  </div>
+                </div>
               </div>
+              {customFile && (
+                <button
+                  type="button"
+                  onClick={() => handleProcessFile(customFile)}
+                  disabled={isProcessing}
+                  className="shrink-0 px-3 py-1.5 bg-amber-800 hover:bg-amber-900 text-white font-bold text-xs rounded-xl transition-colors shadow-xs disabled:opacity-50"
+                >
+                  {isProcessing ? 'Retrying...' : 'Retry Extraction'}
+                </button>
+              )}
             </div>
-            {customFile && (
+
+            {/* Quick action buttons for graceful fallback */}
+            <div className="pt-2 border-t border-amber-200/80 flex flex-wrap items-center gap-2">
+              {isDemoSession && (
+                <button
+                  type="button"
+                  onClick={handleApplyDemoTemplate}
+                  className="px-3 py-1.5 bg-white hover:bg-amber-100/60 border border-amber-300 text-amber-900 font-bold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Fill with Demo Template (Synthetic)</span>
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => handleProcessFile(customFile)}
-                disabled={isProcessing}
-                className="shrink-0 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs rounded-xl transition-colors shadow-xs disabled:opacity-50"
+                onClick={() => {
+                  setIsEditing(true);
+                  if (!visitDate) setVisitDate(TODAY_ISO);
+                  setProcessingError(null);
+                }}
+                className="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-semibold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-1.5"
               >
-                {isProcessing ? 'Retrying...' : 'Retry extraction'}
+                <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                <span>Continue with Manual Entry</span>
               </button>
-            )}
+            </div>
+          </div>
+        )}
+
+        {/* Notice when synthetic demo template was applied */}
+        {appliedTemplateNotice && (
+          <div className="mt-3 p-3 bg-teal-50 border border-teal-200 text-teal-950 rounded-xl text-xs flex items-start justify-between gap-2 shadow-2xs">
+            <div className="flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold text-teal-900">Synthetic Demo Template Applied</div>
+                <div className="text-[11px] text-teal-800 mt-0.5 leading-relaxed">{appliedTemplateNotice}</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAppliedTemplateNotice(null)}
+              className="text-teal-700 hover:text-teal-900 text-xs font-bold p-1"
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -413,18 +587,48 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-between py-1.5 border-b border-slate-50">
-              <span className="text-slate-500 font-medium">{t.visitDateLabel}</span>
-              {isEditing ? (
-                <input
-                  type="date"
-                  value={visitDate}
-                  onChange={e => setVisitDate(e.target.value)}
-                  max={TODAY_ISO}
-                  className="font-bold text-slate-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 outline-none"
-                />
-              ) : (
-                <span className="font-bold text-slate-800">{visitDate || 'Not specified'}</span>
+            <div className="py-1.5 border-b border-slate-50">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-medium">{t.visitDateLabel}</span>
+                {isEditing ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={visitDate}
+                      onChange={e => {
+                        setVisitDate(e.target.value);
+                        if (e.target.value) {
+                          setDateValidationError(null);
+                          if (saveError?.toLowerCase().includes('date')) setSaveError(null);
+                        }
+                      }}
+                      max={TODAY_ISO}
+                      className={`font-bold text-slate-800 px-2 py-0.5 rounded border outline-none text-xs ${
+                        dateValidationError ? 'border-red-400 bg-red-50 text-red-900 ring-1 ring-red-400' : 'bg-teal-50 border-teal-200'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVisitDate(TODAY_ISO);
+                        setDateValidationError(null);
+                        if (saveError?.toLowerCase().includes('date')) setSaveError(null);
+                      }}
+                      className="px-2 py-0.5 text-[10px] font-bold bg-teal-100 hover:bg-teal-200 text-teal-800 rounded transition-colors shadow-2xs"
+                      title="Set to today's date"
+                    >
+                      Today
+                    </button>
+                  </div>
+                ) : (
+                  <span className="font-bold text-slate-800">{visitDate || 'Not specified'}</span>
+                )}
+              </div>
+              {dateValidationError && (
+                <div className="text-[11px] font-bold text-red-600 flex items-center gap-1 mt-1 justify-end">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                  <span>{dateValidationError}</span>
+                </div>
               )}
             </div>
 

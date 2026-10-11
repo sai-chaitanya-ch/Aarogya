@@ -52,7 +52,9 @@ GEMINI_GENERATE_URL = "https://generativelanguage.googleapis.com/v1beta/models/{
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 GEMINI_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "8.0"))
+GEMINI_VISION_TIMEOUT_SECONDS = float(os.getenv("GEMINI_VISION_TIMEOUT_SECONDS", "18.0"))
 GROQ_TIMEOUT_SECONDS = float(os.getenv("GROQ_TIMEOUT_SECONDS", "10.0"))
+EXTRACTION_TOTAL_TIMEOUT_SECONDS = float(os.getenv("EXTRACTION_TOTAL_TIMEOUT_SECONDS", "40.0"))
 
 MAX_GEMINI_RETRIES = 2
 MAX_GROQ_RETRIES = 1
@@ -179,10 +181,11 @@ def _call_gemini(
     if system_instruction:
         payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
-    timeout = GEMINI_TIMEOUT_SECONDS if not image_bytes else 30.0
+    timeout = GEMINI_TIMEOUT_SECONDS if not image_bytes else GEMINI_VISION_TIMEOUT_SECONDS
+    max_retries = MAX_GEMINI_RETRIES if not image_bytes else 1
     client = get_http_client()
 
-    for attempt in range(MAX_GEMINI_RETRIES + 1):
+    for attempt in range(max_retries + 1):
         try:
             response = client.post(
                 GEMINI_GENERATE_URL.format(model=model),
@@ -213,9 +216,9 @@ def _call_gemini(
 
             # 503, 502, 500, 408 are transient; retry with bounded backoff
             if _is_transient_status(response.status_code):
-                if attempt < MAX_GEMINI_RETRIES:
+                if attempt < max_retries:
                     delay = _parse_retry_after(response) or min(2.5, 0.4 * (2 ** attempt) + random.uniform(0.05, 0.15))
-                    logger.info("Transient Gemini %s on model=%s; retrying in %.2fs (attempt %d/%d)", response.status_code, model, delay, attempt + 1, MAX_GEMINI_RETRIES)
+                    logger.info("Transient Gemini %s on model=%s; retrying in %.2fs (attempt %d/%d)", response.status_code, model, delay, attempt + 1, max_retries)
                     time.sleep(delay)
                     continue
                 logger.warning("Gemini transient failure exhausted retries: model=%s status=%s", model, response.status_code)
@@ -236,7 +239,10 @@ def _call_gemini(
         except QuotaExhaustedError:
             raise
         except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as net_err:
-            if attempt < MAX_GEMINI_RETRIES:
+            if image_bytes and isinstance(net_err, httpx.TimeoutException):
+                logger.warning("Gemini vision timed out after %.1fs on model=%s; advancing to next candidate model", timeout, model)
+                return None
+            if attempt < max_retries:
                 delay = min(2.5, 0.4 * (2 ** attempt) + random.uniform(0.05, 0.15))
                 logger.info("Transient network error (%s) on model=%s; retrying in %.2fs", type(net_err).__name__, model, delay)
                 time.sleep(delay)
@@ -321,8 +327,12 @@ def generate_text(
     max_output_tokens: int = 2500,
 ) -> ModelResult:
     """Try Gemini models first, then configured Groq models when input is text-only."""
+    deadline = time.time() + EXTRACTION_TOTAL_TIMEOUT_SECONDS
     attempts = 0
     for model in get_candidate_gemini_models():
+        if time.time() >= deadline:
+            logger.warning("Gemini extraction deadline exceeded; aborting further Gemini attempts")
+            break
         attempts += 1
         try:
             text = _call_gemini(
@@ -347,6 +357,9 @@ def generate_text(
         raise ModelUnavailableError("Gemini vision is unavailable. Please retry or use a readable document with selectable text.")
 
     for model in get_candidate_groq_models():
+        if time.time() >= deadline:
+            logger.warning("Groq extraction deadline exceeded; aborting further attempts")
+            break
         attempts += 1
         text = _call_groq(prompt, system_instruction, model, json_mode, max_output_tokens=max_output_tokens)
         if text:
