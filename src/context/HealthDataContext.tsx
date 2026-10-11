@@ -3,6 +3,7 @@ import { supabase } from '../services/supabase';
 import { indexDocumentForRag } from '../services/api';
 import { useAuth } from './AuthContext';
 import { MedicalRecord, ActiveMedicationReminder, Appointment, AddRecordResult } from '../types';
+import { DEMO_RECORDS, DEMO_REMINDERS, DEMO_APPOINTMENTS } from '../demo/demoFixtures';
 
 interface HealthDataContextType {
   records: MedicalRecord[];
@@ -10,7 +11,10 @@ interface HealthDataContextType {
   appointments: Appointment[];
   isLoading: boolean;
   dbError: string | null;
+  isDemoSession: boolean;
+  demoResetCount: number;
   refetchData: () => Promise<void>;
+  resetDemoData: () => void;
   addRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<AddRecordResult>;
   updateRecord: (id: string, updated: Partial<MedicalRecord>) => Promise<void>;
   deleteRecord: (id: string) => Promise<void>;
@@ -24,17 +28,74 @@ interface HealthDataContextType {
 const HealthDataContext = createContext<HealthDataContextType | undefined>(undefined);
 
 export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isDemoSession } = useAuth();
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [notificationToast, setNotificationToast] = useState<string | null>(null);
+  const [demoResetCount, setDemoResetCount] = useState<number>(0);
 
   // Pure zero-state defaults for true authenticated security
   const [records, setRecords] = useState<MedicalRecord[]>([]);
   const [reminders, setReminders] = useState<ActiveMedicationReminder[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
 
+  const demoStoragePrefix = `aarogya_demo_health_${user.id || 'anonymous'}`;
+
+  // Reset demo data helper
+  const resetDemoData = useCallback(() => {
+    if (!isDemoSession) return;
+    const currentUserId = user.id || 'anonymous';
+    const healthPrefix = `aarogya_demo_health_${currentUserId}`;
+    const doctorKeyStandard = `aarogya_demo_doctor_patients_${currentUserId}`;
+    const doctorKeyAnon = `aarogya_demo_doctor_patients_${user.id || 'anon'}`;
+
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i);
+          if (k) {
+            if (k.startsWith(healthPrefix) || k === doctorKeyStandard || k === doctorKeyAnon) {
+              keysToRemove.push(k);
+            }
+          }
+        }
+        keysToRemove.forEach(k => sessionStorage.removeItem(k));
+      } catch {}
+
+      try {
+        window.dispatchEvent(new CustomEvent('aarogya:demo-reset'));
+      } catch {}
+    }
+    setRecords(DEMO_RECORDS);
+    setReminders(DEMO_REMINDERS);
+    setAppointments(DEMO_APPOINTMENTS);
+    setDemoResetCount(c => c + 1);
+    setNotificationToast('🔄 Demo synthetic data has been reset to defaults.');
+  }, [isDemoSession, user.id]);
+
+  const loadDemoData = useCallback(() => {
+    try {
+      const storedRecs = sessionStorage.getItem(`${demoStoragePrefix}_records`);
+      const storedRems = sessionStorage.getItem(`${demoStoragePrefix}_reminders`);
+      const storedApts = sessionStorage.getItem(`${demoStoragePrefix}_appointments`);
+
+      setRecords(storedRecs ? JSON.parse(storedRecs) : DEMO_RECORDS);
+      setReminders(storedRems ? JSON.parse(storedRems) : DEMO_REMINDERS);
+      setAppointments(storedApts ? JSON.parse(storedApts) : DEMO_APPOINTMENTS);
+    } catch {
+      setRecords(DEMO_RECORDS);
+      setReminders(DEMO_REMINDERS);
+      setAppointments(DEMO_APPOINTMENTS);
+    }
+  }, [demoStoragePrefix]);
+
   const loadSupabaseData = useCallback(async () => {
+    if (isDemoSession) {
+      loadDemoData();
+      return;
+    }
+
     const client = supabase;
     if (!client || !isAuthenticated || !user.id) {
       setRecords([]);
@@ -156,10 +217,15 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } finally {
       setIsLoading(false);
     }
-  }, [user.id, user.name, isAuthenticated]);
+  }, [user.id, user.name, isAuthenticated, isDemoSession, loadDemoData]);
 
   // Load data and maintain live subscription when authenticated
   useEffect(() => {
+    if (isDemoSession) {
+      loadDemoData();
+      return;
+    }
+
     const client = supabase;
     if (!client || !isAuthenticated || !user.id) {
       setRecords([]);
@@ -194,9 +260,53 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return () => {
       client.removeChannel(channel);
     };
-  }, [user.id, isAuthenticated, loadSupabaseData]);
+  }, [user.id, isAuthenticated, isDemoSession, loadSupabaseData, loadDemoData]);
 
-  const addRecord = async (newRecord: MedicalRecord, fileBlob?: File | Blob) => {
+  const addRecord = async (newRecord: MedicalRecord, fileBlob?: File | Blob): Promise<AddRecordResult> => {
+    // Isolated handling for Demo Mode
+    if (isDemoSession) {
+      const demoId = `demo_rec_${Date.now()}`;
+      const objectUrl = fileBlob ? URL.createObjectURL(fileBlob) : undefined;
+      const freshRecord: MedicalRecord = {
+        ...newRecord,
+        id: demoId,
+        originalFileUrl: objectUrl,
+        createdAt: new Date().toISOString()
+      };
+
+      setRecords(prev => {
+        const next = [freshRecord, ...prev];
+        try {
+          sessionStorage.setItem(`${demoStoragePrefix}_records`, JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      // Automatically create reminders for any extracted medicines
+      if (newRecord.medicines && newRecord.medicines.length > 0) {
+        for (const m of newRecord.medicines) {
+          if (!m.name.trim()) continue;
+          await addReminder({
+            id: `demo_rem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            medicineName: m.name,
+            dosage: m.dosage,
+            instructions: m.instructions || m.frequency,
+            timeSlot: m.timing === 'night' ? '09:30 PM' : m.timing === 'afternoon' ? '01:30 PM' : '08:00 AM',
+            slotName: m.timing === 'night' ? 'Night' : m.timing === 'afternoon' ? 'Afternoon' : 'Morning',
+            status: 'pending'
+          });
+        }
+      }
+
+      setNotificationToast('✨ Record saved to local demo session (synthetic, unindexed).');
+      return {
+        record: freshRecord,
+        indexingStatus: 'demo_local',
+        chunksIndexed: 0,
+        embeddingModel: 'none'
+      };
+    }
+
     const client = supabase;
     if (!client || !isAuthenticated || !user.id) {
       throw new Error('Sign in to save medical records.');
@@ -331,7 +441,18 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const updateRecord = async (id: string, updated: Partial<MedicalRecord>) => {
-    setRecords(prev => prev.map(r => r.id === id ? { ...r, ...updated } : r));
+    setRecords(prev => {
+      const next = prev.map(r => r.id === id ? { ...r, ...updated } : r);
+      if (isDemoSession) {
+        try {
+          sessionStorage.setItem(`${demoStoragePrefix}_records`, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+
+    if (isDemoSession) return;
+
     const client = supabase;
     if (client && isAuthenticated && user.id) {
       try {
@@ -351,7 +472,18 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const deleteRecord = async (id: string) => {
-    setRecords(prev => prev.filter(r => r.id !== id));
+    setRecords(prev => {
+      const next = prev.filter(r => r.id !== id);
+      if (isDemoSession) {
+        try {
+          sessionStorage.setItem(`${demoStoragePrefix}_records`, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+
+    if (isDemoSession) return;
+
     const client = supabase;
     if (client && isAuthenticated && user.id) {
       try {
@@ -367,11 +499,21 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const toggleReminderStatus = async (id: string, newStatus: 'taken' | 'skipped' | 'pending') => {
-    setReminders(prev => prev.map(r => r.id === id ? { 
-      ...r, 
-      status: newStatus,
-      takenAt: newStatus === 'taken' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined 
-    } : r));
+    setReminders(prev => {
+      const next = prev.map(r => r.id === id ? { 
+        ...r, 
+        status: newStatus,
+        takenAt: newStatus === 'taken' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined 
+      } : r);
+      if (isDemoSession) {
+        try {
+          sessionStorage.setItem(`${demoStoragePrefix}_reminders`, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+
+    if (isDemoSession) return;
 
     const client = supabase;
     if (client && isAuthenticated && user.id) {
@@ -391,7 +533,18 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addReminder = async (newRem: ActiveMedicationReminder) => {
-    setReminders(prev => [newRem, ...prev]);
+    setReminders(prev => {
+      const next = [newRem, ...prev];
+      if (isDemoSession) {
+        try {
+          sessionStorage.setItem(`${demoStoragePrefix}_reminders`, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+
+    if (isDemoSession) return;
+
     const client = supabase;
     if (client && isAuthenticated && user.id) {
       try {
@@ -419,7 +572,18 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const bookAppointment = async (newApt: Appointment) => {
-    setAppointments(prev => [newApt, ...prev]);
+    setAppointments(prev => {
+      const next = [newApt, ...prev];
+      if (isDemoSession) {
+        try {
+          sessionStorage.setItem(`${demoStoragePrefix}_appointments`, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+
+    if (isDemoSession) return;
+
     const client = supabase;
     if (client && isAuthenticated && user.id) {
       try {
@@ -455,7 +619,10 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         appointments,
         isLoading,
         dbError,
+        isDemoSession,
+        demoResetCount,
         refetchData: loadSupabaseData,
+        resetDemoData,
         addRecord,
         updateRecord,
         deleteRecord,

@@ -56,11 +56,73 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+import collections
+import time
+
 security = HTTPBearer(auto_error=False)
 
+DEMO_SYNTHETIC_CONTEXT = """[SYNTHETIC DEMO HEALTH HISTORY CONTEXT — FICTIONAL PATIENT RECORD]
+Patient: Demo Patient A (Age: 34, Female, Blood Group: B+)
+Allergies: Penicillin (Synthetic Demo)
+Conditions: Mild Microcytic Anemia (Synthetic Demo), Mild Hypertension
 
-def get_current_user_id(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
-    """Require a real, verified Supabase user session. No demo identities."""
+Record Excerpt 1: Lab Report — Complete Blood Count (CBC) dated 2026-09-18
+- Hemoglobin: 10.8 g/dL (Reference Range: 12.0 - 15.5 g/dL, Status: Low)
+- WBC Count: 6,800 /uL (Reference Range: 4,000 - 11,000 /uL, Status: Normal)
+- Platelets: 240,000 /uL (Reference Range: 150,000 - 450,000 /uL, Status: Normal)
+- MCV: 76 fL (Reference Range: 80 - 100 fL, Status: Low)
+
+Record Excerpt 2: Prescription dated 2026-09-20 from Demo Community Health Clinic
+- Ferrous Ascorbate 100mg tablet, once daily at night after dinner (30 days)
+- Vitamin C 500mg chewable tablet, once daily in the morning (15 days)
+- Scheduled follow-up: 2026-10-25 for routine review
+
+[END OF DEMO SYNTHETIC CONTEXT]"""
+
+DEMO_SYNTHETIC_CITATIONS = [
+    {
+        "source_label": "[S1]",
+        "title": "Complete Blood Count (CBC) — Demo Diagnostic Lab",
+        "document_type": "Lab Report",
+        "visit_date": "2026-09-18",
+        "facility_name": "Demo Diagnostic Centre",
+    },
+    {
+        "source_label": "[S2]",
+        "title": "General Consultation Prescription — Demo Community Clinic",
+        "document_type": "Prescription",
+        "visit_date": "2026-09-20",
+        "facility_name": "Demo Community Health Clinic",
+    },
+]
+
+# Simple sliding window rate limiter for anonymous users: 10 requests / 5 minutes
+ANONYMOUS_RATE_LIMIT_WINDOW = 300  # 5 minutes
+ANONYMOUS_RATE_LIMIT_MAX = 10
+_anonymous_request_log: dict[str, collections.deque] = collections.defaultdict(collections.deque)
+
+
+def enforce_anonymous_rate_limit(user_id: str) -> None:
+    now = time.time()
+    queue = _anonymous_request_log[user_id]
+    # Prune timestamps older than window
+    while queue and queue[0] < now - ANONYMOUS_RATE_LIMIT_WINDOW:
+        queue.popleft()
+    if len(queue) >= ANONYMOUS_RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demo rate limit reached (10 requests per 5 minutes). Please sign up for a permanent account or wait a moment.",
+        )
+    queue.append(now)
+
+
+class UserSession(BaseModel):
+    id: str
+    is_anonymous: bool = False
+
+
+def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> UserSession:
+    """Require a verified Supabase user session (normal or anonymous)."""
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Aarogya AI.")
     client = get_supabase_client()
@@ -71,12 +133,23 @@ def get_current_user_id(credentials: Optional[HTTPAuthorizationCredentials] = De
         authenticated_user = getattr(response, "user", None)
         if not authenticated_user or not getattr(authenticated_user, "id", None):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is invalid or expired. Please sign in again.")
-        return str(authenticated_user.id)
+        raw_is_anon = getattr(authenticated_user, "is_anonymous", False)
+        # Avoid MagicMock auto-generating a truthy child mock in unit tests
+        if raw_is_anon is True or (isinstance(raw_is_anon, bool) and raw_is_anon):
+            is_anonymous = True
+        else:
+            is_anonymous = False
+        return UserSession(id=str(authenticated_user.id), is_anonymous=is_anonymous)
     except HTTPException:
         raise
     except Exception as exc:
         logger.info("Token validation failed: error_type=%s", type(exc).__name__)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is invalid or expired. Please sign in again.") from exc
+
+
+def get_current_user_id(user: UserSession = Depends(get_current_user)) -> str:
+    """Convenience dependency returning user ID string."""
+    return user.id
 
 
 class ChatRequest(BaseModel):
@@ -122,10 +195,11 @@ async def process_document(
     file: UploadFile = File(...),
     preset_type: str = Form("custom"),
     patient_name: Optional[str] = Form(None),
-    user_id: str = Depends(get_current_user_id),
+    user: UserSession = Depends(get_current_user),
 ):
     """Extract a candidate summary. Storage happens once, after patient review/save in the frontend."""
-    del user_id  # Identity is verified; the route intentionally does not write any files or records yet.
+    if user.is_anonymous:
+        enforce_anonymous_rate_limit(user.id)
     allowed_types = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
     mime_type = (file.content_type or "application/octet-stream").lower()
     if mime_type not in allowed_types:
@@ -173,7 +247,13 @@ async def process_document(
 
 
 @app.post("/api/documents/signed-url")
-def get_signed_url(payload: SignedUrlRequest, user_id: str = Depends(get_current_user_id)):
+def get_signed_url(payload: SignedUrlRequest, user: UserSession = Depends(get_current_user)):
+    if user.is_anonymous:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo sessions are not permitted to generate signed storage URLs.",
+        )
+    user_id = user.id
     path = payload.storage_path.strip().lstrip("/")
     # Browser uploads use {auth.uid()}/{filename}; don't accept any other user's folder.
     if not path.startswith(f"{user_id}/") or ".." in path.split("/"):
@@ -186,10 +266,12 @@ def get_signed_url(payload: SignedUrlRequest, user_id: str = Depends(get_current
 
 
 @app.post("/api/rag/index")
-def index_document(payload: IndexDocumentRequest, user_id: str = Depends(get_current_user_id)):
+def index_document(payload: IndexDocumentRequest, user: UserSession = Depends(get_current_user)):
     """Index the stored OCR and structured data for a document owned by the session user."""
+    if user.is_anonymous:
+        raise HTTPException(status_code=403, detail="Demo sessions do not persist documents to permanent RAG search.")
     try:
-        return {"success": True, **index_medical_document(user_id, str(payload.document_id))}
+        return {"success": True, **index_medical_document(user.id, str(payload.document_id))}
     except PermissionError as exc:
         raise HTTPException(status_code=404, detail="Document not found for this account.") from exc
     except ValueError as exc:
@@ -203,10 +285,12 @@ def index_document(payload: IndexDocumentRequest, user_id: str = Depends(get_cur
 
 
 @app.post("/api/rag/reindex")
-def reindex_documents(user_id: str = Depends(get_current_user_id)):
+def reindex_documents(user: UserSession = Depends(get_current_user)):
     """Index existing documents for this authenticated user after RAG is first enabled."""
+    if user.is_anonymous:
+        raise HTTPException(status_code=403, detail="Demo sessions do not persist documents to permanent RAG search.")
     try:
-        return {"success": True, **reindex_user_documents(user_id)}
+        return {"success": True, **reindex_user_documents(user.id)}
     except RagUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -215,16 +299,30 @@ def reindex_documents(user_id: str = Depends(get_current_user_id)):
 
 
 @app.post("/api/chat")
-def chat_endpoint(payload: ChatRequest, user_id: str = Depends(get_current_user_id)):
+def chat_endpoint(payload: ChatRequest, user: UserSession = Depends(get_current_user)):
     """Retrieve authorized chunks server-side, then generate an answer with model fallback."""
+    if user.is_anonymous:
+        enforce_anonymous_rate_limit(user.id)
+
     query = (payload.message or payload.query or "").strip()
     if not query:
         raise HTTPException(status_code=422, detail="Enter a message to chat with Aarogya.")
     # Emergency safety response must not depend on embeddings, database availability, or model quotas.
     if is_emergency_query(query):
         return ask_aarogya_chat(query=query, language=payload.language, medical_history_context="", citations=[])
+
     try:
-        retrieval = retrieve_relevant_chunks(user_id, query)
+        if user.is_anonymous:
+            # Anonymous demo sessions use server-owned synthetic health records.
+            # Never query user RAG tables or another user's personal health documents.
+            context = DEMO_SYNTHETIC_CONTEXT
+            citations = DEMO_SYNTHETIC_CITATIONS
+            result = ask_aarogya_chat(query=query, language=payload.language, medical_history_context=context, citations=citations)
+            result["retrieval_mode"] = "demo_synthetic"
+            result["retrieved_chunks"] = len(citations)
+            return result
+
+        retrieval = retrieve_relevant_chunks(user.id, query)
         context, citations = format_context_and_citations(retrieval["hits"])
         result = ask_aarogya_chat(query=query, language=payload.language, medical_history_context=context, citations=citations)
         result["retrieval_mode"] = retrieval["mode"]

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { X, Lock, Mail, User, ShieldCheck, Stethoscope, ArrowRight, AlertTriangle } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, Lock, Mail, User, ShieldCheck, Stethoscope, ArrowRight, AlertTriangle, KeyRound } from 'lucide-react';
 import { useAuth, UserRole } from '../../context/AuthContext';
 import { AarogyaLogo } from '../common/AarogyaLogo';
+import { TurnstileWidget, TurnstileWidgetRef } from '../common/TurnstileWidget';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -13,7 +14,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
   const { 
     signInWithEmail, 
     signUpWithEmail, 
+    resetPasswordForEmail,
     signInWithGoogle, 
+    startDemoSession,
     isLoading, 
     isConfigured, 
     configError,
@@ -22,18 +25,48 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
     clearAuthNotice,
     clearAuthError
   } = useAuth();
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [selectedRole, setSelectedRole] = useState<UserRole>('patient');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Turnstile state and ref
+  const turnstileRef = useRef<TurnstileWidgetRef>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const siteKey = (import.meta.env.VITE_TURNSTILE_SITE_KEY || '').trim();
 
   if (!isOpen) return null;
+
+  const handleCaptchaVerify = (token: string) => {
+    setCaptchaToken(token);
+    setErrorMsg(null);
+  };
+
+  const handleCaptchaExpire = () => {
+    setCaptchaToken(null);
+  };
+
+  const handleCaptchaError = () => {
+    setCaptchaToken(null);
+  };
+
+  const consumeCaptchaToken = (): string | undefined => {
+    const token = captchaToken || turnstileRef.current?.getResponse();
+    // Reset widget after token is consumed so subsequent requests get a fresh token
+    if (turnstileRef.current) {
+      turnstileRef.current.reset();
+      setCaptchaToken(null);
+    }
+    return token || undefined;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setSuccessMsg(null);
     clearAuthNotice();
     clearAuthError();
 
@@ -42,8 +75,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
       return;
     }
 
+    // If Turnstile is configured, require token before submitting
+    if (siteKey && !captchaToken && !turnstileRef.current?.getResponse()) {
+      setErrorMsg('Please complete the security verification before continuing.');
+      return;
+    }
+
+    const token = consumeCaptchaToken();
+
+    if (mode === 'forgot') {
+      if (!email.trim()) {
+        setErrorMsg('Please enter your email address to reset password.');
+        return;
+      }
+      const res = await resetPasswordForEmail(email, token);
+      if (res.success) {
+        setSuccessMsg('Password reset link sent to your email. Please check your inbox.');
+      } else {
+        setErrorMsg(res.error || 'Failed to send password reset email.');
+      }
+      return;
+    }
+
     if (mode === 'signin') {
-      const res = await signInWithEmail(email, password, selectedRole);
+      const res = await signInWithEmail(email, password, selectedRole, token);
       if (res.success) {
         if (onClose) onClose();
       } else {
@@ -54,7 +109,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
         setErrorMsg('Please enter your full name.');
         return;
       }
-      const res = await signUpWithEmail(email, password, fullName, selectedRole);
+      const res = await signUpWithEmail(email, password, fullName, selectedRole, token);
       if (res.success) {
         if (onClose) onClose();
       } else {
@@ -67,7 +122,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
     setErrorMsg(null);
     clearAuthNotice();
     clearAuthError();
-    const res = await signInWithGoogle(selectedRole, mode);
+    const oauthMode = mode === 'signup' ? 'signup' : 'signin';
+    const res = await signInWithGoogle(selectedRole, oauthMode);
     if (!res.success) {
       if (
         res.error?.toLowerCase().includes('provider is not enabled') || 
@@ -144,44 +200,72 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
           </button>
         </div>
 
-        {/* Quick Fill Demo Credentials */}
-        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-2.5 space-y-1.5">
-          <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
-            <span>Demo Test Credentials</span>
-            <span className="text-[10px] text-teal-700 font-semibold">Prefill Email & Role</span>
+        {/* Instant Passwordless Demo Mode */}
+        <div className="bg-gradient-to-r from-teal-50 to-emerald-50/50 border border-teal-200/80 rounded-2xl p-3 space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-bold text-teal-950">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-teal-600" />
+              Instant Demo Access
+            </span>
+            <span className="text-[10px] text-teal-700 font-semibold bg-teal-100/70 px-1.5 py-0.5 rounded-full">No Password Required</span>
           </div>
+          <p className="text-[10px] text-slate-500 leading-tight">
+            Explore Aarogya immediately with isolated synthetic medical records.
+          </p>
           <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
-              onClick={() => {
-                setEmail('test@gmail.com');
-                setPassword('');
-                setFullName('Test Patient');
-                setSelectedRole('patient');
+              disabled={isLoading || !isConfigured}
+              onClick={async () => {
                 setErrorMsg(null);
+                setSuccessMsg(null);
                 clearAuthNotice();
                 clearAuthError();
+
+                if (siteKey && !captchaToken && !turnstileRef.current?.getResponse()) {
+                  setErrorMsg('Please complete the security verification before entering the demo.');
+                  return;
+                }
+
+                const token = consumeCaptchaToken();
+                const res = await startDemoSession('patient', token);
+                if (res.success) {
+                  if (onClose) onClose();
+                } else {
+                  setErrorMsg(res.error || 'Failed to start Patient demo.');
+                }
               }}
-              className="py-1.5 px-2 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl text-[11px] font-semibold text-slate-700 hover:text-teal-900 transition-all flex items-center justify-center gap-1 shadow-2xs"
+              className="py-2 px-2 bg-white hover:bg-teal-50 border border-teal-200 hover:border-teal-400 rounded-xl text-[11px] font-bold text-teal-900 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 disabled:opacity-50"
             >
-              <User className="w-3 h-3 text-teal-600" />
-              <span>Test Patient</span>
+              <User className="w-3.5 h-3.5 text-teal-600" />
+              <span>Try Patient Demo</span>
             </button>
             <button
               type="button"
-              onClick={() => {
-                setEmail('doctor@gmail.com');
-                setPassword('');
-                setFullName('Dr. Demo Doctor');
-                setSelectedRole('doctor');
+              disabled={isLoading || !isConfigured}
+              onClick={async () => {
                 setErrorMsg(null);
+                setSuccessMsg(null);
                 clearAuthNotice();
                 clearAuthError();
+
+                if (siteKey && !captchaToken && !turnstileRef.current?.getResponse()) {
+                  setErrorMsg('Please complete the security verification before entering the demo.');
+                  return;
+                }
+
+                const token = consumeCaptchaToken();
+                const res = await startDemoSession('doctor', token);
+                if (res.success) {
+                  if (onClose) onClose();
+                } else {
+                  setErrorMsg(res.error || 'Failed to start Doctor demo.');
+                }
               }}
-              className="py-1.5 px-2 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl text-[11px] font-semibold text-slate-700 hover:text-teal-900 transition-all flex items-center justify-center gap-1 shadow-2xs"
+              className="py-2 px-2 bg-white hover:bg-teal-50 border border-teal-200 hover:border-teal-400 rounded-xl text-[11px] font-bold text-teal-900 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 disabled:opacity-50"
             >
-              <Stethoscope className="w-3 h-3 text-teal-600" />
-              <span>Test Doctor</span>
+              <Stethoscope className="w-3.5 h-3.5 text-teal-600" />
+              <span>Try Doctor Demo</span>
             </button>
           </div>
         </div>
@@ -193,6 +277,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
             onClick={() => {
               setMode('signin');
               setErrorMsg(null);
+              setSuccessMsg(null);
             }}
             className={`flex-1 pb-2 border-b-2 transition-all ${
               mode === 'signin' ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-400'
@@ -205,12 +290,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
             onClick={() => {
               setMode('signup');
               setErrorMsg(null);
+              setSuccessMsg(null);
             }}
             className={`flex-1 pb-2 border-b-2 transition-all ${
               mode === 'signup' ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-400'
             }`}
           >
             Create Account
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('forgot');
+              setErrorMsg(null);
+              setSuccessMsg(null);
+            }}
+            className={`flex-1 pb-2 border-b-2 transition-all ${
+              mode === 'forgot' ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-400'
+            }`}
+          >
+            Reset
           </button>
         </div>
 
@@ -227,6 +326,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
           <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900 text-[11px] font-medium border border-amber-200 flex items-start gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
             <span>{authError}</span>
+          </div>
+        )}
+
+        {/* Success message */}
+        {successMsg && (
+          <div className="p-2.5 rounded-xl bg-teal-50 text-teal-800 text-[11px] font-bold border border-teal-200">
+            {successMsg}
           </div>
         )}
 
@@ -271,46 +377,88 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
             </div>
           </div>
 
-          <div>
-            <label className="block font-bold text-slate-700 mb-1">Password</label>
-            <div className="relative flex items-center">
-              <Lock className="w-4 h-4 text-slate-400 absolute left-3" />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full pl-9 pr-3 py-2 border rounded-xl outline-none focus:border-teal-700 text-xs"
-              />
+          {mode !== 'forgot' && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-bold text-slate-700">Password</label>
+                {mode === 'signin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('forgot');
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="text-[10px] text-teal-700 hover:text-teal-900 font-semibold"
+                  >
+                    Forgot Password?
+                  </button>
+                )}
+              </div>
+              <div className="relative flex items-center">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3" />
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-9 pr-3 py-2 border rounded-xl outline-none focus:border-teal-700 text-xs"
+                />
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Cloudflare Turnstile CAPTCHA Widget */}
+          <TurnstileWidget
+            ref={turnstileRef}
+            onVerify={handleCaptchaVerify}
+            onExpire={handleCaptchaExpire}
+            onError={handleCaptchaError}
+            theme="light"
+            size="normal"
+            action={mode === 'signin' ? 'login' : mode === 'signup' ? 'signup' : 'reset_password'}
+          />
 
           <button
             type="submit"
             disabled={isLoading || !isConfigured}
             className="w-full py-2.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-black rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5"
           >
-            <span>{isLoading ? 'Authenticating...' : mode === 'signin' ? 'Sign In' : 'Create Account'}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <span>
+              {isLoading 
+                ? 'Authenticating...' 
+                : mode === 'signin' 
+                ? 'Sign In' 
+                : mode === 'signup' 
+                ? 'Create Account' 
+                : 'Send Password Reset Link'}
+            </span>
+            {mode === 'forgot' ? (
+              <KeyRound className="w-3.5 h-3.5" />
+            ) : (
+              <ArrowRight className="w-3.5 h-3.5" />
+            )}
           </button>
         </form>
 
         {/* Google OAuth Button */}
-        <button
-          type="button"
-          disabled={!isConfigured}
-          onClick={handleGoogleSignIn}
-          className="w-full py-2 bg-slate-50 hover:bg-slate-100 disabled:opacity-50 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
-        >
-          <svg className="w-4 h-4" viewBox="0 0 24 24">
-            <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
-            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
-            <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
-            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
-          </svg>
-          <span>Continue with Google</span>
-        </button>
+        {mode !== 'forgot' && (
+          <button
+            type="button"
+            disabled={!isConfigured}
+            onClick={handleGoogleSignIn}
+            className="w-full py-2 bg-slate-50 hover:bg-slate-100 disabled:opacity-50 border border-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"/>
+              <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 10.03 0 12s.45 3.82 1.25 5.42l4.03-3.15z"/>
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"/>
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+        )}
 
         <p className="text-[10px] text-slate-400 text-center leading-tight">
           Email & Password login or Demo Accounts are active and recommended for testing.
