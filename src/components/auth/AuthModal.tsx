@@ -14,6 +14,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
     signInWithEmail, 
     signUpWithEmail, 
     signInWithGoogle, 
+    startDemoSession,
     isLoading, 
     isConfigured, 
     configError,
@@ -144,44 +145,56 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, canClose 
           </button>
         </div>
 
-        {/* Quick Fill Demo Credentials */}
-        <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-2.5 space-y-1.5">
-          <div className="flex items-center justify-between text-[11px] font-bold text-slate-600">
-            <span>Demo Test Credentials</span>
-            <span className="text-[10px] text-teal-700 font-semibold">Prefill Email & Role</span>
+        {/* Instant Passwordless Demo Mode */}
+        <div className="bg-gradient-to-r from-teal-50 to-emerald-50/50 border border-teal-200/80 rounded-2xl p-3 space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-bold text-teal-950">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-teal-600" />
+              Instant Demo Access
+            </span>
+            <span className="text-[10px] text-teal-700 font-semibold bg-teal-100/70 px-1.5 py-0.5 rounded-full">No Password Required</span>
           </div>
+          <p className="text-[10px] text-slate-500 leading-tight">
+            Explore Aarogya immediately with isolated synthetic medical records.
+          </p>
           <div className="grid grid-cols-2 gap-1.5">
             <button
               type="button"
-              onClick={() => {
-                setEmail('test@gmail.com');
-                setPassword('');
-                setFullName('Test Patient');
-                setSelectedRole('patient');
+              disabled={isLoading || !isConfigured}
+              onClick={async () => {
                 setErrorMsg(null);
                 clearAuthNotice();
                 clearAuthError();
+                const res = await startDemoSession('patient');
+                if (res.success) {
+                  if (onClose) onClose();
+                } else {
+                  setErrorMsg(res.error || 'Failed to start Patient demo.');
+                }
               }}
-              className="py-1.5 px-2 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl text-[11px] font-semibold text-slate-700 hover:text-teal-900 transition-all flex items-center justify-center gap-1 shadow-2xs"
+              className="py-2 px-2 bg-white hover:bg-teal-50 border border-teal-200 hover:border-teal-400 rounded-xl text-[11px] font-bold text-teal-900 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 disabled:opacity-50"
             >
-              <User className="w-3 h-3 text-teal-600" />
-              <span>Test Patient</span>
+              <User className="w-3.5 h-3.5 text-teal-600" />
+              <span>Try Patient Demo</span>
             </button>
             <button
               type="button"
-              onClick={() => {
-                setEmail('doctor@gmail.com');
-                setPassword('');
-                setFullName('Dr. Demo Doctor');
-                setSelectedRole('doctor');
+              disabled={isLoading || !isConfigured}
+              onClick={async () => {
                 setErrorMsg(null);
                 clearAuthNotice();
                 clearAuthError();
+                const res = await startDemoSession('doctor');
+                if (res.success) {
+                  if (onClose) onClose();
+                } else {
+                  setErrorMsg(res.error || 'Failed to start Doctor demo.');
+                }
               }}
-              className="py-1.5 px-2 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-300 rounded-xl text-[11px] font-semibold text-slate-700 hover:text-teal-900 transition-all flex items-center justify-center gap-1 shadow-2xs"
+              className="py-2 px-2 bg-white hover:bg-teal-50 border border-teal-200 hover:border-teal-400 rounded-xl text-[11px] font-bold text-teal-900 transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 disabled:opacity-50"
             >
-              <Stethoscope className="w-3 h-3 text-teal-600" />
-              <span>Test Doctor</span>
+              <Stethoscope className="w-3.5 h-3.5 text-teal-600" />
+              <span>Try Doctor Demo</span>
             </button>
           </div>
         </div>

@@ -2,10 +2,12 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 import { UserProfile, Language } from '../types';
 import { calculateAgeFromDob } from '../utils/dateUtils';
+import { DEMO_PATIENT_PROFILE, DEMO_DOCTOR_PROFILE } from '../demo/demoFixtures';
 
 export type UserRole = 'patient' | 'doctor';
 
 export const OAUTH_INTENT_KEY = 'aarogya_oauth_signup_intent';
+export const DEMO_PERSONA_KEY = 'aarogya_demo_persona';
 
 export interface OAuthSignupIntent {
   role: UserRole;
@@ -39,6 +41,9 @@ export const AAROGYA_STORAGE_KEYS = [
 
 export function clearAarogyaStorage() {
   AAROGYA_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
+  try {
+    sessionStorage.removeItem(DEMO_PERSONA_KEY);
+  } catch {}
 }
 
 interface AuthContextType {
@@ -47,6 +52,7 @@ interface AuthContextType {
   isDoctorAccount: boolean;
   isDoctorVerified: boolean;
   isAuthenticated: boolean;
+  isDemoSession: boolean;
   isConfigured: boolean;
   configError: string | null;
   authNotice: string | null;
@@ -55,6 +61,7 @@ interface AuthContextType {
   setRole: (role: UserRole) => void;
   clearAuthNotice: () => void;
   clearAuthError: () => void;
+  startDemoSession: (role: UserRole) => Promise<{ success: boolean; error?: string }>;
   updateUserProfile: (updated: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
   signInWithEmail: (email: string, password: string, selectedRole?: UserRole) => Promise<{ success: boolean; error?: string }>;
   signUpWithEmail: (email: string, password: string, name: string, selectedRole: UserRole) => Promise<{ success: boolean; error?: string }>;
@@ -70,6 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isDoctorVerified, setIsDoctorVerified] = useState<boolean>(false);
   const [user, setUser] = useState<UserProfile>(emptyUserProfile);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isDemoSession, setIsDemoSession] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -86,6 +94,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     requestedRole?: UserRole
   ) => {
     if (!supabase) return;
+
+    // Check if the authenticated user is genuinely an anonymous demo session
+    // Strict requirement: Trust authenticated user's is_anonymous property, not client metadata alone!
+    const isAnonymous = Boolean(authUser?.is_anonymous);
+
+    if (isAnonymous) {
+      setIsDemoSession(true);
+
+      // Determine persona: requested role or stored session persona, default 'patient'
+      let storedPersona: UserRole | null = null;
+      try {
+        storedPersona = sessionStorage.getItem(DEMO_PERSONA_KEY) as UserRole | null;
+      } catch {}
+
+      const effectiveDemoRole: UserRole = requestedRole || (storedPersona === 'doctor' ? 'doctor' : 'patient');
+      try {
+        sessionStorage.setItem(DEMO_PERSONA_KEY, effectiveDemoRole);
+      } catch {}
+
+      if (effectiveDemoRole === 'doctor') {
+        setIsDoctorAccount(true);
+        setIsDoctorVerified(false); // Doctor demo users may enter Doctor Portal, but must always remain unverified!
+        setRoleState('doctor');
+        localStorage.setItem('aarogya_user_role', 'doctor');
+        setUser({
+          ...DEMO_DOCTOR_PROFILE,
+          id: userId
+        });
+      } else {
+        setIsDoctorAccount(false);
+        setIsDoctorVerified(false);
+        setRoleState('patient');
+        localStorage.setItem('aarogya_user_role', 'patient');
+        setUser({
+          ...DEMO_PATIENT_PROFILE,
+          id: userId
+        });
+      }
+
+      setIsAuthenticated(true);
+      return;
+    }
+
+    // Normal non-anonymous user: clear demo session state
+    setIsDemoSession(false);
+    try {
+      sessionStorage.removeItem(DEMO_PERSONA_KEY);
+    } catch {}
+
     try {
       // 1. Consume pending OAuth intent if present (< 10 minutes old)
       let oauthIntent: OAuthSignupIntent | null = null;
@@ -299,6 +356,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabase) {
       setIsLoading(false);
       setIsAuthenticated(false);
+      setIsDemoSession(false);
       setUser(emptyUserProfile);
       return;
     }
@@ -321,6 +379,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       } else {
         setIsAuthenticated(false);
+        setIsDemoSession(false);
         setUser(emptyUserProfile);
         setIsLoading(false);
       }
@@ -337,6 +396,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
       } else {
         setIsAuthenticated(false);
+        setIsDemoSession(false);
         setUser(emptyUserProfile);
         clearAarogyaStorage();
       }
@@ -349,9 +409,89 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  const startDemoSession = async (demoRole: UserRole): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase) {
+      return {
+        success: false,
+        error: 'Database service is unconfigured. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment.'
+      };
+    }
+
+    setIsLoading(true);
+    setAuthNotice(null);
+    setAuthError(null);
+
+    try {
+      // 1. If an active session exists, sign it out cleanly first
+      const { data: existingSessionData } = await supabase.auth.getSession();
+      if (existingSessionData?.session) {
+        try {
+          await supabase.auth.signOut();
+        } catch (signOutErr) {
+          console.warn('Sign-out before demo session warning:', signOutErr);
+        }
+      }
+
+      // Record intended demo persona in sessionStorage
+      try {
+        sessionStorage.setItem(DEMO_PERSONA_KEY, demoRole);
+      } catch {}
+
+      // 2. Call Supabase Auth signInAnonymously()
+      if (typeof supabase.auth.signInAnonymously !== 'function') {
+        setIsLoading(false);
+        return {
+          success: false,
+          error: 'Anonymous Sign-Ins are not supported by the client library or have been disabled in your Supabase project. Enable Anonymous sign-in in Supabase Dashboard (Authentication > Providers > Anonymous).'
+        };
+      }
+
+      const { data, error } = await supabase.auth.signInAnonymously();
+
+      if (error) {
+        setIsLoading(false);
+        const lowerMsg = error.message.toLowerCase();
+        if (lowerMsg.includes('anonymous sign-ins are disabled') || lowerMsg.includes('provider is disabled') || lowerMsg.includes('signup disabled')) {
+          return {
+            success: false,
+            error: 'Anonymous Sign-Ins are currently disabled in your Supabase project. Please enable "Anonymous sign-ins" in the Supabase Dashboard under Authentication > Providers > Anonymous.'
+          };
+        }
+        return { success: false, error: error.message };
+      }
+
+      if (data?.user) {
+        await resolveAccountRoleAndProfile(data.user.id, data.user, demoRole);
+        setIsAuthenticated(true);
+        setIsLoading(false);
+        return { success: true };
+      }
+
+      setIsLoading(false);
+      return { success: false, error: 'Could not initialize anonymous demo session.' };
+    } catch (err: any) {
+      setIsLoading(false);
+      return { success: false, error: err?.message || 'Failed to start demo session.' };
+    }
+  };
+
   const updateUserProfile = async (
     updated: Partial<UserProfile>
   ): Promise<{ success: boolean; error?: string }> => {
+    // If demo session, update in-memory state only. Never write to Supabase medical tables!
+    if (isDemoSession) {
+      setUser(prev => {
+        const nextDob = updated.dob !== undefined ? updated.dob : prev.dob;
+        const nextAge = calculateAgeFromDob(nextDob) ?? 0;
+        return {
+          ...prev,
+          ...updated,
+          age: nextAge
+        };
+      });
+      return { success: true };
+    }
+
     // Sync to Supabase if connected and authenticated
     if (supabase && isAuthenticated && user.id) {
       try {
@@ -586,6 +726,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Purge in-memory state and Aarogya-specific cached data
     clearAarogyaStorage();
     setIsAuthenticated(false);
+    setIsDemoSession(false);
     setUser(emptyUserProfile);
     setRoleState('patient');
     setIsDoctorAccount(false);
@@ -603,6 +744,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isDoctorAccount,
         isDoctorVerified,
         isAuthenticated,
+        isDemoSession,
         isConfigured: isSupabaseConfigured,
         configError,
         authNotice,
@@ -611,6 +753,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRole,
         clearAuthNotice,
         clearAuthError,
+        startDemoSession,
         updateUserProfile,
         signInWithEmail,
         signUpWithEmail,

@@ -8,6 +8,7 @@ import {
 import confetti from 'canvas-confetti';
 import { Doctor, PatientListItem, MedicalRecord, ExtractedMedicine } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { DEMO_DOCTOR_PATIENTS } from '../../demo/demoFixtures';
 
 interface DoctorPortalProps {
   onSwitchToPatient: () => void;
@@ -24,7 +25,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   onTabChange,
   isVerified: controlledIsVerified
 }) => {
-  const { user, isDoctorVerified: authIsDoctorVerified } = useAuth();
+  const { user, isDoctorVerified: authIsDoctorVerified, isDemoSession } = useAuth();
   const isVerified = controlledIsVerified !== undefined ? controlledIsVerified : authIsDoctorVerified;
   const doctorDisplayName = user?.name ? (user.name.startsWith('Dr.') ? user.name : `Dr. ${user.name}`) : 'Dr. Practitioner';
   const doctorInitials = user?.name 
@@ -46,8 +47,17 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   const [showAddPatientModal, setShowAddPatientModal] = useState(false);
   const [prescriptionTab, setPrescriptionTab] = useState<'write' | 'upload'>('write');
 
-  // Patients state - initialized empty for real database/authenticated doctor
-  const [patients, setPatients] = useState<PatientListItem[]>([]);
+  // Patients state - initialized empty for real database/authenticated doctor, seeded for demo
+  const demoPatientsKey = `aarogya_demo_doctor_patients_${user?.id || 'anon'}`;
+  const [patients, setPatients] = useState<PatientListItem[]>(() => {
+    if (!isDemoSession) return [];
+    try {
+      const saved = sessionStorage.getItem(demoPatientsKey);
+      return saved ? JSON.parse(saved) : DEMO_DOCTOR_PATIENTS;
+    } catch {
+      return DEMO_DOCTOR_PATIENTS;
+    }
+  });
   const [patientSearch, setPatientSearch] = useState('');
   const [patientFilter, _setPatientFilter] = useState<'all' | 'followup' | 'recent' | 'chronic'>('all');
 
@@ -146,7 +156,13 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
       avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80'
     };
 
-    setPatients([newPat, ...patients]);
+    const updatedPatients = [newPat, ...patients];
+    setPatients(updatedPatients);
+    if (isDemoSession) {
+      try {
+        sessionStorage.setItem(demoPatientsKey, JSON.stringify(updatedPatients));
+      } catch {}
+    }
     setNewPatName('');
     setNewPatPhone('');
     setNewPatAbha('');

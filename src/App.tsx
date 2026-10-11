@@ -32,13 +32,15 @@ function AarogyaAppContent() {
   const { 
     user, role, setRole, isDoctorAccount, isDoctorVerified, 
     updateUserProfile, isAuthenticated, isLoading, signOut,
-    authNotice, authError, clearAuthNotice, clearAuthError
+    authNotice, authError, clearAuthNotice, clearAuthError,
+    isDemoSession
   } = useAuth();
   const { 
     records, reminders, appointments, 
     addRecord, deleteRecord, toggleReminderStatus, 
     addReminder, bookAppointment, 
-    notificationToast, clearNotificationToast 
+    notificationToast, clearNotificationToast,
+    resetDemoData
   } = useHealthData();
 
   const [language, setLanguage] = useState<Language>(user.preferredLanguage || 'en');
@@ -136,6 +138,37 @@ function AarogyaAppContent() {
         onExportSummary={() => exportClinicalSummary(user, records, reminders)}
         onSignOut={signOut}
       />
+
+      {/* Persistent Demo Mode Banner */}
+      {isDemoSession && (
+        <div className="bg-amber-500 text-amber-950 px-3 py-1.5 border-b border-amber-600/30 flex items-center justify-between text-xs font-semibold shadow-xs z-30 flex-shrink-0">
+          <div className="flex items-center gap-2 truncate">
+            <span className="bg-amber-900 text-amber-100 text-[10px] uppercase font-black px-1.5 py-0.5 rounded tracking-wider flex-shrink-0">
+              Demo Mode
+            </span>
+            <span className="truncate text-[11px] sm:text-xs">
+              Synthetic data only. Changes stay in this browser session. Do not upload real health records.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 pl-2">
+            <button
+              type="button"
+              onClick={resetDemoData}
+              className="text-[11px] underline font-bold hover:text-black cursor-pointer"
+            >
+              Reset Data
+            </button>
+            <span className="text-amber-800/60 hidden sm:inline">|</span>
+            <button
+              type="button"
+              onClick={signOut}
+              className="text-[11px] bg-amber-900/10 hover:bg-amber-900/20 px-2 py-0.5 rounded text-amber-950 font-bold transition-colors"
+            >
+              Exit Demo
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Responsive Application Shell */}
       <main className="flex-1 min-h-0 min-w-0 flex w-full max-w-7xl mx-auto overflow-hidden md:p-3 lg:p-4">

@@ -35,7 +35,7 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
   onOpenAuthModal
 }) => {
   const t = translations[language];
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isDemoSession } = useAuth();
 
   // Candidate extraction state & errors
   const [processedRecord, setProcessedRecord] = useState<MedicalRecord | null>(null);
@@ -185,6 +185,16 @@ export const ScanReviewStep: React.FC<ScanReviewStepProps> = ({
             </button>
           )}
         </div>
+
+        {/* Demo Mode Notice */}
+        {isDemoSession && (
+          <div className="mt-2.5 p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl text-amber-900 text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="text-[11px] leading-tight">
+              <span className="font-bold">Demo Mode Notice:</span> Extracted records are stored only in your browser's temporary session and are never uploaded to database or permanent storage. Please only test with sample or de-identified test documents.
+            </div>
+          </div>
+        )}
 
         {/* Camera & File Upload Quick Controls */}
         <div className="mt-3 grid grid-cols-2 gap-2">
