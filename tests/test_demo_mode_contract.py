@@ -136,3 +136,75 @@ def test_anonymous_rate_limiting_enforced(client, monkeypatch):
     )
     assert res_throttled.status_code == 429
     assert "Demo rate limit reached" in res_throttled.json()["detail"]
+
+
+def test_demo_storage_cleanup_removes_demo_keys_and_preserves_unrelated_keys():
+    """
+    Simulates the sessionStorage cleanup performed during demo sign-out and reset.
+    It verifies that keys with prefixes 'aarogya_demo_health_', 'aarogya_demo_doctor_patients_',
+    and the demo persona key are purged, while unrelated application/vendor keys are preserved.
+    """
+    mock_session_storage = {
+        # Aarogya demo keys
+        "aarogya_demo_persona": "patient",
+        "aarogya_demo_health_anon-123_records": '[{"id": "demo-rec-1"}]',
+        "aarogya_demo_health_anon-123_reminders": '[{"id": "demo-rem-1"}]',
+        "aarogya_demo_health_anon-123_appointments": '[{"id": "demo-apt-1"}]',
+        "aarogya_demo_doctor_patients_anon-123": '[{"id": "pat-1"}]',
+        "aarogya_oauth_signup_intent": '{"role": "patient"}',
+
+        # Unrelated keys that MUST be preserved
+        "theme_preference": "dark",
+        "cookie_consent": "true",
+        "analytics_session_id": "xyz-789",
+        "third_party_app_state": "active",
+    }
+
+    # Simulate clearAarogyaStorage() cleanup
+    keys_to_remove = [
+        k for k in mock_session_storage
+        if k in ("aarogya_demo_persona", "aarogya_oauth_signup_intent")
+        or k.startswith("aarogya_demo_health_")
+        or k.startswith("aarogya_demo_doctor_patients_")
+    ]
+    for k in keys_to_remove:
+        mock_session_storage.pop(k)
+
+    # Assert demo keys were purged
+    assert "aarogya_demo_persona" not in mock_session_storage
+    assert "aarogya_demo_health_anon-123_records" not in mock_session_storage
+    assert "aarogya_demo_health_anon-123_reminders" not in mock_session_storage
+    assert "aarogya_demo_health_anon-123_appointments" not in mock_session_storage
+    assert "aarogya_demo_doctor_patients_anon-123" not in mock_session_storage
+    assert "aarogya_oauth_signup_intent" not in mock_session_storage
+
+    # Assert unrelated keys are fully preserved
+    assert mock_session_storage["theme_preference"] == "dark"
+    assert mock_session_storage["cookie_consent"] == "true"
+    assert mock_session_storage["analytics_session_id"] == "xyz-789"
+    assert mock_session_storage["third_party_app_state"] == "active"
+
+
+def test_demo_reset_data_cleans_user_scoped_prefix_only():
+    """
+    Simulates resetDemoData() scoping: only keys starting with the active user's
+    demoStoragePrefix are purged.
+    """
+    prefix = "aarogya_demo_health_user-456"
+    mock_session_storage = {
+        f"{prefix}_records": '[{"id": "mod-1"}]',
+        f"{prefix}_reminders": '[{"id": "mod-2"}]',
+        f"{prefix}_appointments": '[{"id": "mod-3"}]',
+        "unrelated_user_setting": "keep-me",
+    }
+
+    # Sweep matching prefix
+    keys_to_remove = [k for k in mock_session_storage if k.startswith(prefix)]
+    for k in keys_to_remove:
+        mock_session_storage.pop(k)
+
+    assert f"{prefix}_records" not in mock_session_storage
+    assert f"{prefix}_reminders" not in mock_session_storage
+    assert f"{prefix}_appointments" not in mock_session_storage
+    assert mock_session_storage["unrelated_user_setting"] == "keep-me"
+

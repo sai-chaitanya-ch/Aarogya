@@ -41,9 +41,21 @@ export const AAROGYA_STORAGE_KEYS = [
 
 export function clearAarogyaStorage() {
   AAROGYA_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
-  try {
-    sessionStorage.removeItem(DEMO_PERSONA_KEY);
-  } catch {}
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      sessionStorage.removeItem(DEMO_PERSONA_KEY);
+      sessionStorage.removeItem('aarogya_oauth_signup_intent');
+      // Remove all Aarogya-owned demo health and doctor keys without affecting unrelated keys
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (k && (k.startsWith('aarogya_demo_health_') || k.startsWith('aarogya_demo_doctor_patients_'))) {
+          keysToRemove.push(k);
+        }
+      }
+      keysToRemove.forEach(k => sessionStorage.removeItem(k));
+    } catch {}
+  }
 }
 
 interface AuthContextType {

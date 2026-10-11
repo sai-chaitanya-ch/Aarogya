@@ -116,7 +116,7 @@ export interface Doctor {
 
 export interface AddRecordResult {
   record: MedicalRecord;
-  indexingStatus: 'indexed' | 'indexing_failed';
+  indexingStatus: 'indexed' | 'indexing_failed' | 'demo_local' | 'unindexed';
   chunksIndexed?: number;
   embeddingModel?: string;
   indexingError?: string;

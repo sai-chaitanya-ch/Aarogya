@@ -42,11 +42,18 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Reset demo data helper
   const resetDemoData = useCallback(() => {
     if (!isDemoSession) return;
-    try {
-      sessionStorage.removeItem(`${demoStoragePrefix}_records`);
-      sessionStorage.removeItem(`${demoStoragePrefix}_reminders`);
-      sessionStorage.removeItem(`${demoStoragePrefix}_appointments`);
-    } catch {}
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      try {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i);
+          if (k && k.startsWith(demoStoragePrefix)) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach(k => sessionStorage.removeItem(k));
+      } catch {}
+    }
     setRecords(DEMO_RECORDS);
     setReminders(DEMO_REMINDERS);
     setAppointments(DEMO_APPOINTMENTS);
@@ -280,9 +287,9 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setNotificationToast('✨ Record saved to local demo session (synthetic, unindexed).');
       return {
         record: freshRecord,
-        indexingStatus: 'indexed',
+        indexingStatus: 'demo_local',
         chunksIndexed: 0,
-        embeddingModel: 'demo-isolated'
+        embeddingModel: 'none'
       };
     }
 

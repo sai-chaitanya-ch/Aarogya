@@ -183,6 +183,26 @@ export const AskAarogyaChat: React.FC<AskAarogyaChatProps> = ({
             recordId: realId
           }]
         }]);
+      } else if (saveResult.indexingStatus === 'demo_local' || saveResult.indexingStatus === 'unindexed') {
+        setAttachment(prev => prev ? {
+          ...prev,
+          status: 'saved_unindexed',
+          recordId: realId,
+          errorMessage: undefined
+        } : null);
+
+        const demoText = `Your document "${file.name}" was saved to your browser's demo session (synthetic, unindexed). You can review it in your Medical Library.`;
+        setMessages(prev => [...prev, {
+          id: `ai_${Date.now()}`,
+          sender: 'aarogya',
+          text: demoText,
+          timestamp: 'Just now',
+          citations: [{
+            documentTitle: realRecord.title || file.name,
+            documentDate: realRecord.visitDate || 'Recent',
+            recordId: realId
+          }]
+        }]);
       } else {
         // Saved successfully, but indexing failed
         setAttachment(prev => prev ? {
