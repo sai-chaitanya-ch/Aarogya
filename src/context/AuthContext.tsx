@@ -80,10 +80,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const clearAuthNotice = () => setAuthNotice(null);
   const clearAuthError = () => setAuthError(null);
 
-  const resolveAccountRoleAndProfile = async (userId: string, authUser?: any) => {
+  const resolveAccountRoleAndProfile = async (
+    userId: string, 
+    authUser?: any,
+    requestedRole?: UserRole
+  ) => {
     if (!supabase) return;
     try {
-      // 1. Consume pending OAuth signup intent if present (< 10 minutes old)
+      // 1. Consume pending OAuth intent if present (< 10 minutes old)
       let oauthIntent: OAuthSignupIntent | null = null;
       try {
         const storedIntent = sessionStorage.getItem(OAUTH_INTENT_KEY);
@@ -97,6 +101,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } catch (intentErr) {
         console.warn('Could not parse OAuth intent from sessionStorage:', intentErr);
+        try {
+          sessionStorage.removeItem(OAUTH_INTENT_KEY);
+        } catch {}
       }
 
       // Check existing accounts in database
@@ -225,15 +232,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsDoctorAccount(isDoc);
       setIsDoctorVerified(isVerified);
 
+      // Determine active workspace:
+      // Priority 1: Explicit requested role from the current login/OAuth attempt
+      // Priority 2: Stored browser preference ONLY IF authorized as doctor
+      // Priority 3: Default role: 'doctor' if isDoc, otherwise 'patient'
+      const explicitRole = requestedRole || (oauthIntent ? oauthIntent.role : undefined);
+
+      let targetRole: UserRole = 'patient';
+
       if (isDoc) {
-        const cachedRole = localStorage.getItem('aarogya_user_role');
-        const activeRole: UserRole = cachedRole === 'patient' ? 'patient' : 'doctor';
-        setRoleState(activeRole);
-        localStorage.setItem('aarogya_user_role', activeRole);
+        if (explicitRole === 'doctor') {
+          targetRole = 'doctor';
+        } else if (explicitRole === 'patient') {
+          targetRole = 'patient';
+          setAuthNotice('Signed in with Patient view. You can switch to Doctor Workspace anytime.');
+        } else {
+          // No explicit request during this login, check cached preference
+          const cachedRole = localStorage.getItem('aarogya_user_role');
+          targetRole = cachedRole === 'patient' ? 'patient' : 'doctor';
+        }
       } else {
-        setRoleState('patient');
-        localStorage.setItem('aarogya_user_role', 'patient');
+        // Patient account: strictly patient workspace only, regardless of requestedRole or cached values
+        targetRole = 'patient';
+        if (explicitRole === 'doctor') {
+          setAuthNotice(prev => prev || 'This account is registered as a patient. Patient workspace has been loaded.');
+        }
       }
+
+      setRoleState(targetRole);
+      localStorage.setItem('aarogya_user_role', targetRole);
     } catch (e: any) {
       console.warn('Failed to resolve profile from Supabase:', e);
       setAuthError(`Profile resolution error: ${e?.message || 'Unknown error'}`);
@@ -255,6 +282,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const userFriendlyError = oauthErrorDesc || `Authentication failed: ${oauthErrorCode}`;
           setAuthError(userFriendlyError.replace(/\+/g, ' '));
           
+          // Clear any stale OAuth intent on callback error or cancellation
+          try {
+            sessionStorage.removeItem(OAUTH_INTENT_KEY);
+          } catch {}
+
           // Clean URL without triggering page refresh
           const cleanUrl = window.location.pathname;
           window.history.replaceState({}, document.title, cleanUrl);
@@ -430,26 +462,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: error.message };
       }
       if (data.user) {
+        // Resolve profile and active workspace deterministically BEFORE marking authenticated / ending loading
+        await resolveAccountRoleAndProfile(data.user.id, data.user, selectedRole);
         setIsAuthenticated(true);
-        await resolveAccountRoleAndProfile(data.user.id, data.user);
-        
-        // If selectedRole was provided, check for mismatch with resolved account capability
-        if (selectedRole) {
-          // Check if user selected Doctor but account is not a registered doctor
-          const { data: docData } = await supabase
-            .from('doctor_profiles')
-            .select('id')
-            .eq('id', data.user.id)
-            .maybeSingle();
-
-          const actuallyDoctor = Boolean(docData) || data.user.user_metadata?.role === 'doctor';
-          if (selectedRole === 'doctor' && !actuallyDoctor) {
-            setAuthNotice('This account is registered as a patient. Patient workspace has been loaded.');
-          } else if (selectedRole === 'patient' && actuallyDoctor) {
-            setAuthNotice('This account is registered as a doctor. You can switch between Doctor and Patient views at any time.');
-          }
-        }
-
         setIsLoading(false);
         return { success: true };
       }
@@ -483,7 +498,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, error: error.message };
       }
       if (data.user) {
-        setIsAuthenticated(true);
         // Create initial profile row
         try {
           await supabase.from('profiles').upsert({
@@ -513,7 +527,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        await resolveAccountRoleAndProfile(data.user.id, data.user);
+        await resolveAccountRoleAndProfile(data.user.id, data.user, selectedRole);
+        setIsAuthenticated(true);
         setIsLoading(false);
         return { success: true };
       }
