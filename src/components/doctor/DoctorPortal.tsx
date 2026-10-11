@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Users, Calendar, FileText, MessageSquare, Plus, Search, 
-  Video, Phone, ShieldCheck, MapPin, Clock, ArrowLeft, 
-  Send, Upload, CheckCircle2, AlertCircle, Trash2, Edit3, 
-  Camera, Landmark, User, Bell, ChevronRight, Stethoscope 
+  Users, Calendar, MessageSquare, Plus, Search, 
+  Phone, ShieldCheck, Clock, ArrowLeft, 
+  Send, Upload, AlertCircle, Trash2, Edit3, 
+  Landmark, User, ChevronRight, Stethoscope 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Doctor, PatientListItem, MedicalRecord, ExtractedMedicine } from '../../types';
+import { PatientListItem, MedicalRecord, ExtractedMedicine } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { DEMO_DOCTOR_PATIENTS } from '../../demo/demoFixtures';
 
@@ -48,18 +48,35 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
   const [prescriptionTab, setPrescriptionTab] = useState<'write' | 'upload'>('write');
 
   // Patients state - initialized empty for real database/authenticated doctor, seeded for demo
-  const demoPatientsKey = `aarogya_demo_doctor_patients_${user?.id || 'anon'}`;
+  const currentUserId = user?.id || 'anonymous';
+  const demoPatientsKey = `aarogya_demo_doctor_patients_${currentUserId}`;
   const [patients, setPatients] = useState<PatientListItem[]>(() => {
     if (!isDemoSession) return [];
     try {
-      const saved = sessionStorage.getItem(demoPatientsKey);
+      const saved = sessionStorage.getItem(demoPatientsKey) || sessionStorage.getItem(`aarogya_demo_doctor_patients_${user?.id || 'anon'}`);
       return saved ? JSON.parse(saved) : DEMO_DOCTOR_PATIENTS;
     } catch {
       return DEMO_DOCTOR_PATIENTS;
     }
   });
+
+  // Listen for demo reset events dispatched by resetDemoData()
+  useEffect(() => {
+    const handleResetEvent = () => {
+      if (isDemoSession) {
+        setPatients(DEMO_DOCTOR_PATIENTS);
+        setSelectedPatient(null);
+        setShowCreatePrescription(false);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('aarogya:demo-reset', handleResetEvent);
+      return () => window.removeEventListener('aarogya:demo-reset', handleResetEvent);
+    }
+  }, [isDemoSession]);
+
   const [patientSearch, setPatientSearch] = useState('');
-  const [patientFilter, _setPatientFilter] = useState<'all' | 'followup' | 'recent' | 'chronic'>('all');
+  const [_patientFilter, _setPatientFilter] = useState<'all' | 'followup' | 'recent' | 'chronic'>('all');
 
   // Prescription builder state
   const [newMedName, setNewMedName] = useState('');
@@ -107,16 +124,20 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
     // Create new medical record to sync to patient
     const publishedRecord: MedicalRecord = {
       id: `rx_doc_${Date.now()}`,
-      title: `Prescription by ${doctorDisplayName}`,
+      title: isDemoSession 
+        ? 'Synthetic Demo Prescription (Unverified)' 
+        : `Prescription by ${doctorDisplayName}`,
       documentType: 'Prescription',
       patientName: selectedPatient.name,
       visitDate: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      doctorName: doctorDisplayName,
-      facilityName: 'Aarogya Health Network',
+      doctorName: isDemoSession ? 'Demo Clinician (Unverified)' : doctorDisplayName,
+      facilityName: isDemoSession ? 'Demo Community Health Clinic' : 'Aarogya Health Network',
       specialty: 'General Medicine',
-      status: 'verified',
+      status: isDemoSession ? 'pending_review' : 'verified',
       aiSummary: {
-        en: `Prescription published by ${doctorDisplayName} containing ${prescriptionMedicines.length} medications. Instructions: ${rxInstructions || 'None'}`,
+        en: isDemoSession
+          ? `Synthetic demo prescription containing ${prescriptionMedicines.length} medications for demonstration purposes only. Instructions: ${rxInstructions || 'None'}`
+          : `Prescription published by ${doctorDisplayName} containing ${prescriptionMedicines.length} medications. Instructions: ${rxInstructions || 'None'}`,
         te: `${doctorDisplayName} ${prescriptionMedicines.length} మందులతో ప్రిస్క్రిప్షన్ విడుదల చేశారు.`,
         hi: `${doctorDisplayName} द्वारा ${prescriptionMedicines.length} दवाओं के साथ पर्चा जारी किया गया।`,
         ta: `${doctorDisplayName} ${prescriptionMedicines.length} மருந்துகளுடன் மருந்துச்சீட்டை வெளியிட்டுள்ளார்.`
@@ -140,7 +161,11 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
       });
     } catch {}
 
-    alert(`Prescription published successfully and synchronized with ${selectedPatient.name}'s Aarogya app!`);
+    if (isDemoSession) {
+      alert('Demo Prescription Saved: This synthetic prescription was saved locally in your active demo session only. No real patient was notified, and no real medical records or clinical relationships were created.');
+    } else {
+      alert(`Prescription published successfully and synchronized with ${selectedPatient.name}'s Aarogya app!`);
+    }
     setShowCreatePrescription(false);
   };
 
@@ -191,14 +216,18 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
           <div>
             <div className="flex items-center gap-1.5 font-extrabold text-xs text-slate-900">
               <span>{doctorDisplayName}</span>
-              {isVerified ? (
+              {isDemoSession ? (
+                <span title="DEMO PRACTITIONER — NOT A REAL DOCTOR">
+                  <Clock className="w-3.5 h-3.5 text-amber-500" />
+                </span>
+              ) : isVerified ? (
                 <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
               ) : (
                 <Clock className="w-3.5 h-3.5 text-amber-500" />
               )}
             </div>
-            <div className={`text-[10px] font-semibold ${isVerified ? 'text-teal-800' : 'text-amber-700'}`}>
-              General Medicine · {isVerified ? 'Verified Practitioner' : 'Verification Pending'}
+            <div className={`text-[10px] font-semibold ${isDemoSession ? 'text-amber-700' : isVerified ? 'text-teal-800' : 'text-amber-700'}`}>
+              General Medicine · {isDemoSession ? 'Demo Practitioner (Not Verified)' : isVerified ? 'Verified Practitioner' : 'Verification Pending'}
             </div>
           </div>
         </div>
@@ -215,13 +244,17 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
 
       {/* Screen Content based on activeTab */}
       <div className="flex-1 p-3.5 sm:p-5 md:p-6 lg:p-8 overflow-y-auto space-y-4 md:space-y-6 max-w-6xl w-full mx-auto">
-        {!isVerified && (
+        {(!isVerified || isDemoSession) && (
           <div className="p-3.5 bg-amber-50/90 border border-amber-200/80 rounded-2xl text-amber-900 text-xs flex items-start gap-3 shadow-2xs">
             <Clock className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
-              <div className="font-bold text-amber-950">Doctor Verification Pending</div>
-              <p className="text-[11px] text-amber-800 mt-0.5">
-                Your medical registration number is undergoing credential verification. Clinical access to patient records is restricted until verification is confirmed by the healthcare network.
+              <div className="font-bold text-amber-950">
+                {isDemoSession ? "DEMO PRACTITIONER — NOT A REAL DOCTOR" : "Doctor Verification Pending"}
+              </div>
+              <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                {isDemoSession
+                  ? "DEMO PRACTITIONER — NOT A REAL DOCTOR. Verification: Not verified. All clinical views, patient records, and actions are synthetic demonstration fixtures."
+                  : "Your medical registration number is undergoing credential verification. Clinical access to patient records is restricted until verification is confirmed by the healthcare network."}
               </p>
             </div>
           </div>
@@ -578,6 +611,13 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
               </div>
             </div>
 
+            {isDemoSession && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl text-amber-900 text-[11px] flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span>Demo Mode: Synthetic prescription builder. Output is fictional and saved locally in this demo session only.</span>
+              </div>
+            )}
+
             {/* Write vs Upload Tabs */}
             <div className="flex items-center bg-slate-200/60 p-1 rounded-xl text-xs font-semibold">
               <button
@@ -674,7 +714,9 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                   onChange={e => setSendNotification(e.target.checked)}
                   className="rounded text-teal-700"
                 />
-                <span className="text-[11px] text-slate-600 font-semibold">Send to patient (App notification)</span>
+                <span className="text-[11px] text-slate-600 font-semibold">
+                  {isDemoSession ? 'Simulate patient app notification (Demo only)' : 'Send to patient (App notification)'}
+                </span>
               </label>
             </div>
 
@@ -696,7 +738,7 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
                 }`}
                 title={!isVerified && !isDemoSession ? 'Requires verified doctor credentials' : undefined}
               >
-                Publish Prescription
+                {isDemoSession ? 'Save Demo Prescription' : 'Publish Prescription'}
               </button>
             </div>
           </div>
@@ -794,12 +836,50 @@ export const DoctorPortal: React.FC<DoctorPortalProps> = ({
               <div>
                 <h3 className="font-bold text-sm text-slate-900">{doctorDisplayName}</h3>
                 <p className="text-teal-800 font-semibold">General Medicine Practitioner</p>
-                <p className="text-slate-400 text-[10px]">{user?.email || 'Verified Practitioner'}</p>
+                <p className="text-slate-400 text-[10px]">
+                  {isDemoSession
+                    ? 'Demo Session (Unverified)'
+                    : (user?.email || (isVerified ? 'Verified Practitioner' : 'Verification Pending'))}
+                </p>
               </div>
             </div>
+
+            {isDemoSession && (
+              <div className="p-3 bg-amber-50/90 border border-amber-200/80 rounded-xl text-amber-900 text-xs flex items-start gap-2.5 shadow-2xs">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-amber-950">DEMO PRACTITIONER — NOT A REAL DOCTOR</div>
+                  <div className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                    Verification: Not verified. This account is an interactive demonstration persona with synthetic patient data. No medical license or clinical credentials have been checked.
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="pt-2 border-t border-slate-100 space-y-1.5 text-slate-600">
-              <div><strong>Practice:</strong> Aarogya Healthcare Network</div>
-              <div><strong>Status:</strong> Active & Verified</div>
+              <div>
+                <strong>Practice:</strong> Aarogya Healthcare Network{isDemoSession ? ' (Demo Mode)' : ''}
+              </div>
+              <div>
+                <strong>Status:</strong>{' '}
+                {isDemoSession ? (
+                  <span className="font-bold text-amber-700">DEMO PRACTITIONER — NOT A REAL DOCTOR</span>
+                ) : isVerified ? (
+                  <span className="font-bold text-teal-700">Active & Verified</span>
+                ) : (
+                  <span className="font-bold text-amber-700">Verification Pending</span>
+                )}
+              </div>
+              <div>
+                <strong>Verification:</strong>{' '}
+                {isDemoSession ? (
+                  <span className="text-amber-700 font-semibold">Not verified</span>
+                ) : isVerified ? (
+                  <span className="text-teal-700 font-semibold">Verified Practitioner</span>
+                ) : (
+                  <span className="text-amber-700 font-semibold">Under review</span>
+                )}
+              </div>
             </div>
           </div>
         )}

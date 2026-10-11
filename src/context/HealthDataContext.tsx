@@ -12,6 +12,7 @@ interface HealthDataContextType {
   isLoading: boolean;
   dbError: string | null;
   isDemoSession: boolean;
+  demoResetCount: number;
   refetchData: () => Promise<void>;
   resetDemoData: () => void;
   addRecord: (record: MedicalRecord, fileBlob?: File | Blob) => Promise<AddRecordResult>;
@@ -31,6 +32,7 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const [notificationToast, setNotificationToast] = useState<string | null>(null);
+  const [demoResetCount, setDemoResetCount] = useState<number>(0);
 
   // Pure zero-state defaults for true authenticated security
   const [records, setRecords] = useState<MedicalRecord[]>([]);
@@ -42,23 +44,35 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Reset demo data helper
   const resetDemoData = useCallback(() => {
     if (!isDemoSession) return;
+    const currentUserId = user.id || 'anonymous';
+    const healthPrefix = `aarogya_demo_health_${currentUserId}`;
+    const doctorKeyStandard = `aarogya_demo_doctor_patients_${currentUserId}`;
+    const doctorKeyAnon = `aarogya_demo_doctor_patients_${user.id || 'anon'}`;
+
     if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
         const keysToRemove: string[] = [];
         for (let i = 0; i < sessionStorage.length; i++) {
           const k = sessionStorage.key(i);
-          if (k && k.startsWith(demoStoragePrefix)) {
-            keysToRemove.push(k);
+          if (k) {
+            if (k.startsWith(healthPrefix) || k === doctorKeyStandard || k === doctorKeyAnon) {
+              keysToRemove.push(k);
+            }
           }
         }
         keysToRemove.forEach(k => sessionStorage.removeItem(k));
+      } catch {}
+
+      try {
+        window.dispatchEvent(new CustomEvent('aarogya:demo-reset'));
       } catch {}
     }
     setRecords(DEMO_RECORDS);
     setReminders(DEMO_REMINDERS);
     setAppointments(DEMO_APPOINTMENTS);
+    setDemoResetCount(c => c + 1);
     setNotificationToast('🔄 Demo synthetic data has been reset to defaults.');
-  }, [isDemoSession, demoStoragePrefix]);
+  }, [isDemoSession, user.id]);
 
   const loadDemoData = useCallback(() => {
     try {
@@ -606,6 +620,7 @@ export const HealthDataProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         isLoading,
         dbError,
         isDemoSession,
+        demoResetCount,
         refetchData: loadSupabaseData,
         resetDemoData,
         addRecord,
