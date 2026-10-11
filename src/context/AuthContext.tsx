@@ -61,10 +61,11 @@ interface AuthContextType {
   setRole: (role: UserRole) => void;
   clearAuthNotice: () => void;
   clearAuthError: () => void;
-  startDemoSession: (role: UserRole) => Promise<{ success: boolean; error?: string }>;
+  startDemoSession: (role: UserRole, captchaToken?: string) => Promise<{ success: boolean; error?: string }>;
   updateUserProfile: (updated: Partial<UserProfile>) => Promise<{ success: boolean; error?: string }>;
-  signInWithEmail: (email: string, password: string, selectedRole?: UserRole) => Promise<{ success: boolean; error?: string }>;
-  signUpWithEmail: (email: string, password: string, name: string, selectedRole: UserRole) => Promise<{ success: boolean; error?: string }>;
+  signInWithEmail: (email: string, password: string, selectedRole?: UserRole, captchaToken?: string) => Promise<{ success: boolean; error?: string }>;
+  signUpWithEmail: (email: string, password: string, name: string, selectedRole: UserRole, captchaToken?: string) => Promise<{ success: boolean; error?: string }>;
+  resetPasswordForEmail: (email: string, captchaToken?: string) => Promise<{ success: boolean; error?: string }>;
   signInWithGoogle: (selectedRole?: UserRole, authMode?: 'signin' | 'signup') => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
 }
@@ -409,7 +410,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  const startDemoSession = async (demoRole: UserRole): Promise<{ success: boolean; error?: string }> => {
+  const startDemoSession = async (demoRole: UserRole, captchaToken?: string): Promise<{ success: boolean; error?: string }> => {
     if (!supabase) {
       return {
         success: false,
@@ -446,7 +447,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      const { data, error } = await supabase.auth.signInAnonymously();
+      const anonOptions: { captchaToken?: string } = {};
+      if (captchaToken) {
+        anonOptions.captchaToken = captchaToken;
+      }
+
+      const { data, error } = await supabase.auth.signInAnonymously(
+        Object.keys(anonOptions).length > 0 ? { options: anonOptions } : undefined
+      );
 
       if (error) {
         setIsLoading(false);
@@ -584,7 +592,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('aarogya_user_role', newRole);
   };
 
-  const signInWithEmail = async (email: string, password: string, selectedRole?: UserRole) => {
+  const signInWithEmail = async (
+    email: string, 
+    password: string, 
+    selectedRole?: UserRole,
+    captchaToken?: string
+  ) => {
     if (!supabase) {
       return {
         success: false,
@@ -596,7 +609,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthNotice(null);
     setAuthError(null);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const signInOptions: { captchaToken?: string } = {};
+      if (captchaToken) {
+        signInOptions.captchaToken = captchaToken;
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+        ...(Object.keys(signInOptions).length > 0 ? { options: signInOptions } : {})
+      });
       if (error) {
         setIsLoading(false);
         return { success: false, error: error.message };
@@ -616,7 +638,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: false, error: 'Unknown login error' };
   };
 
-  const signUpWithEmail = async (email: string, password: string, name: string, selectedRole: UserRole) => {
+  const signUpWithEmail = async (
+    email: string, 
+    password: string, 
+    name: string, 
+    selectedRole: UserRole,
+    captchaToken?: string
+  ) => {
     if (!supabase) {
       return {
         success: false,
@@ -628,10 +656,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthNotice(null);
     setAuthError(null);
     try {
+      const signUpOptions: { data: { full_name: string; role: UserRole }; captchaToken?: string } = {
+        data: { full_name: name, role: selectedRole }
+      };
+      if (captchaToken) {
+        signUpOptions.captchaToken = captchaToken;
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: name, role: selectedRole } }
+        options: signUpOptions
       });
       if (error) {
         setIsLoading(false);
@@ -714,6 +749,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const resetPasswordForEmail = async (
+    email: string,
+    captchaToken?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase) {
+      return {
+        success: false,
+        error: 'Database service is unconfigured. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment.'
+      };
+    }
+
+    setIsLoading(true);
+    setAuthNotice(null);
+    setAuthError(null);
+    try {
+      const resetOptions: { redirectTo?: string; captchaToken?: string } = {
+        redirectTo: window.location.origin
+      };
+      if (captchaToken) {
+        resetOptions.captchaToken = captchaToken;
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email, resetOptions);
+      setIsLoading(false);
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
+      setIsLoading(false);
+      return { success: false, error: err.message || 'Password reset failed' };
+    }
+  };
+
   const signOut = async () => {
     setIsLoading(true);
     if (supabase) {
@@ -757,6 +826,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateUserProfile,
         signInWithEmail,
         signUpWithEmail,
+        resetPasswordForEmail,
         signInWithGoogle,
         signOut
       }}

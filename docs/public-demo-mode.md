@@ -24,9 +24,12 @@ To support passwordless demo mode on the deployed project:
 > *"Anonymous demo sign-ins are not enabled in your Supabase project. Please enable Anonymous Sign-Ins under Supabase Authentication > Providers."*
 
 ### 2.2 Bot Protection & Rate Limiting (CAPTCHA)
-To protect anonymous endpoints from abuse:
-1. **Supabase Turnstile / hCaptcha**:
-   - In Supabase Auth settings, enable Cloudflare Turnstile or hCaptcha for anonymous sign-ins to mitigate script-based automated spam sessions.
+To protect anonymous and public authentication endpoints from abuse:
+1. **Cloudflare Turnstile CAPTCHA Integration**:
+   - Aarogya includes a reusable React component (`TurnstileWidget`) rendered conditionally inside `AuthModal` when `VITE_TURNSTILE_SITE_KEY` is configured.
+   - Captured verification tokens are passed as the `captchaToken` option to Supabase Auth (`signInWithPassword`, `signUp`, `resetPasswordForEmail`, and `signInAnonymously`).
+   - The Turnstile widget resets automatically after each consumed token, handling expired and error states cleanly.
+   - **Secret Key Security**: The Turnstile Secret Key is configured **only** in the Supabase Dashboard under **Authentication > Bot Protection / Security**. It is never included in client bundles, `.env` files, or Git repositories.
 2. **Backend Rate Limiting**:
    - The Aarogya FastAPI backend (`backend/main.py`) validates `user.is_anonymous`.
    - For all anonymous tokens, a sliding window rate limiter limits traffic to a maximum of **10 requests per 5 minutes** per anonymous session on `/api/chat` and `/api/documents/process`.
